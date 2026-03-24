@@ -14,7 +14,7 @@ use Cwd qw(abs_path);
 use Mojo::JSON qw(decode_json);
 use Koha::Biblios;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 our $metadata = {
     name            => 'NM2DB Keyword Search',
