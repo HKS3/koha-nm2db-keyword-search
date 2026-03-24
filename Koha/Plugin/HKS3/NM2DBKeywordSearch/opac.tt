@@ -1,0 +1,59 @@
+[% INCLUDE 'doc-head-open.inc' %]
+[% IF ( LibraryNameTitle ) %][% LibraryNameTitle %][% ELSE %]Koha online[% END %] catalog &rsaquo; NM2DB keyword search
+[% INCLUDE 'doc-head-close.inc' %]
+</head>
+<body id="opac-main" class="scrollto">
+[% INCLUDE 'masthead.inc' %]
+
+<div class="main">
+    <ul class="breadcrumb">
+        <li><a href="/cgi-bin/koha/opac-main.pl">Home</a> <span class="divider">&rsaquo;</span></li>
+        <li><a href="#">NM2DB keyword search</a></li>
+    </ul>
+
+    <div class="container-fluid">
+        <div class="row-fluid">
+            <div class="span12">
+                <div id="opac-nm2db-keyword-search" class="maincontent">
+                    <h1>NM2DB keyword search</h1>
+
+                    <form method="get" action="/api/v1/contrib/nm2db_keyword_search/public/search" class="form-inline">
+                        <label for="keyword">Keyword</label>
+                        <input id="keyword" name="keyword" type="text" value="[% keyword | html %]" size="40">
+                        <button class="btn btn-primary" type="submit">Search</button>
+                        <a class="btn btn-link" href="[% intranet_plugin_url | html %]">Staff page</a>
+                    </form>
+
+                    [% IF keyword && !results.size %]
+                        <p>No matches found.</p>
+                    [% END %]
+
+                    [% IF results.size %]
+                        <p>Showing [% results.size %] matches.</p>
+                        <table class="table table-bordered table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Biblionumber</th>
+                                    <th>Tag</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                [% FOREACH row IN results %]
+                                    <tr>
+                                        <td><a href="/cgi-bin/koha/opac-detail.pl?biblionumber=[% row.biblionumber | uri %]">[% row.biblionumber | html %]</a></td>
+                                        <td>[% row.tag | html %]</td>
+                                        <td>[% row.value | html %]</td>
+                                    </tr>
+                                [% END %]
+                            </tbody>
+                        </table>
+                    [% END %]
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+[% INCLUDE 'opac-bottom.inc' %]
+[% BLOCK jsinclude %][% END %]

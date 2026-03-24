@@ -1,0 +1,56 @@
+{
+  "/search": {
+    "get": {
+      "x-mojo-to": "HKS3::NM2DBKeywordSearch::Controller#search",
+      "operationId": "nm2dbKeywordSearchPublicSearch",
+      "tags": [
+        "plugin"
+      ],
+      "produces": [
+        "application/json"
+      ],
+      "parameters": [
+        {
+          "name": "keyword",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Search results",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "biblionumber": {
+                      "type": "integer",
+                      "x-nullable": true
+                    },
+                    "tag": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
