@@ -40,6 +40,50 @@ sub new {
     return $self;
 }
 
+sub install {
+    my ($self) = @_;
+
+    my $dbh = C4::Context->dbh;
+    my ($exists) = $dbh->selectrow_array(q{
+        SELECT COUNT(*)
+        FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'nm2db_subfields'
+          AND index_name = 'ft_subfield_value'
+    });
+
+    if ( !$exists ) {
+        $dbh->do(q{
+            ALTER TABLE nm2db_subfields
+            ADD FULLTEXT INDEX ft_subfield_value (value)
+        });
+    }
+
+    return 1;
+}
+
+sub uninstall {
+    my ($self) = @_;
+
+    my $dbh = C4::Context->dbh;
+    my ($exists) = $dbh->selectrow_array(q{
+        SELECT COUNT(*)
+        FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'nm2db_subfields'
+          AND index_name = 'ft_subfield_value'
+    });
+
+    if ($exists) {
+        $dbh->do(q{
+            ALTER TABLE nm2db_subfields
+            DROP INDEX ft_subfield_value
+        });
+    }
+
+    return 1;
+}
+
 sub api_namespace {
     return 'nm2db_keyword_search';
 }
