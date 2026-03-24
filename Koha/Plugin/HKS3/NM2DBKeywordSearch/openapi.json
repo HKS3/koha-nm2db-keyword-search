@@ -1,4 +1,50 @@
 {
+  "/page": {
+    "get": {
+      "x-mojo-to": "HKS3::NM2DBKeywordSearch::Controller#page",
+      "operationId": "nm2dbKeywordSearchPage",
+      "tags": [
+        "plugin"
+      ],
+      "produces": [
+        "text/html"
+      ],
+      "parameters": [
+        {
+          "name": "keyword",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "type",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "facet_name",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "facet_value",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "HTML search page",
+          "schema": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
   "/search": {
     "get": {
       "x-mojo-to": "HKS3::NM2DBKeywordSearch::Controller#search",
@@ -12,6 +58,24 @@
       "parameters": [
         {
           "name": "keyword",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "type",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "facet_name",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "facet_value",
           "in": "query",
           "required": false,
           "type": "string"
@@ -29,6 +93,12 @@
               "count": {
                 "type": "integer"
               },
+              "facet_name": {
+                "type": "string"
+              },
+              "facet_value": {
+                "type": "string"
+              },
               "results": {
                 "type": "array",
                 "items": {
@@ -43,6 +113,37 @@
                     },
                     "value": {
                       "type": "string"
+                    },
+                    "xml": {
+                      "type": "string"
+                    },
+                    "rendered_html": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "facets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer"
+                          }
+                        }
+                      }
                     }
                   }
                 }

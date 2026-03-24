@@ -1,0 +1,225 @@
+[% SET footerjs = 1 %]
+[% INCLUDE 'doc-head-open.inc' %]
+<title>NM2DB Keyword Search</title>
+<style>
+  .nm2db-page {
+    max-width: 1200px;
+  }
+  .nm2db-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .nm2db-meta {
+    color: #52606d;
+    margin-bottom: 12px;
+  }
+  .nm2db-error {
+    color: #b42318;
+    margin-bottom: 12px;
+  }
+  .nm2db-results pre {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-width: 40rem;
+    font-size: 0.85rem;
+  }
+  .nm2db-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 20px;
+    align-items: start;
+  }
+  .nm2db-facets {
+    background: #fff;
+    border: 1px solid #d9dee3;
+    border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .nm2db-facets h2 {
+    margin-top: 0;
+    font-size: 1.2rem;
+  }
+  .nm2db-facet-group {
+    margin-bottom: 16px;
+  }
+  .nm2db-facet-group h3 {
+    margin: 0 0 6px;
+    font-size: 1rem;
+  }
+  .nm2db-facet-group ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+  @media (max-width: 900px) {
+    .nm2db-layout {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+[% INCLUDE 'doc-head-close.inc' %]
+</head>
+<body>
+[% WRAPPER 'header.inc' %]
+    [% INCLUDE 'prefs-admin-search.inc' %]
+[% END %]
+
+<div id="breadcrumbs">
+    <a href="/cgi-bin/koha/mainpage.pl">Home</a>
+    &rsaquo; <a href="/cgi-bin/koha/plugins/plugins-home.pl">Plugins</a>
+    &rsaquo; NM2DB Keyword Search
+</div>
+
+<div class="main container-fluid nm2db-page">
+    <div class="row">
+        <div class="col-sm-12">
+            <main>
+                <h1>NM2DB Keyword Search</h1>
+                <div class="page-section">
+                    <form id="nm2db-search-form">
+                        <div class="nm2db-grid">
+                            <input id="nm2db-keyword" name="keyword" type="text" class="form-control" placeholder="Search keyword, for example perl">
+                            <button type="submit" class="btn btn-primary">Search</button>
+                        </div>
+                    </form>
+
+                    <div id="nm2db-meta" class="nm2db-meta"></div>
+                    <div id="nm2db-error" class="nm2db-error"></div>
+                    <div class="nm2db-layout">
+                        <div id="nm2db-results" class="nm2db-results"></div>
+                        <aside id="nm2db-facets" class="nm2db-facets"></aside>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+</div>
+
+<script>
+const nm2dbApiUrl = "[% api_search_url | html %]";
+
+function nm2dbEscapeHtml(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function nm2dbRenderResults(payload) {
+    const rows = Array.isArray(payload.results) ? payload.results : [];
+    const facets = Array.isArray(payload.facets) ? payload.facets : [];
+    const meta = document.getElementById("nm2db-meta");
+    const results = document.getElementById("nm2db-results");
+    const facetBox = document.getElementById("nm2db-facets");
+    const activeFacet = payload.facet_name && payload.facet_value
+        ? ` | Filter: ${payload.facet_name}=${payload.facet_value}`
+        : "";
+
+    meta.textContent = rows.length
+        ? `Keyword: ${payload.keyword || ""} | Results: ${payload.count || rows.length}${activeFacet}`
+        : `Keyword: ${payload.keyword || ""} | No results${activeFacet}`;
+
+    if (!rows.length) {
+        results.innerHTML = "<p>No results found.</p>";
+        facetBox.innerHTML = "";
+        return;
+    }
+
+    results.innerHTML = `
+        <table class="table table-bordered table-striped">
+            <thead>
+                <tr>
+                    <th>Record</th>
+                    <th>Tag</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows.map((row) => `
+                    <tr>
+                        <td>${row.rendered_html || ""}</td>
+                        <td>${nm2dbEscapeHtml(row.tag || "")}</td>
+                        <td>${nm2dbEscapeHtml(row.value || "")}</td>
+                    </tr>
+                `).join("")}
+            </tbody>
+        </table>
+    `;
+
+    facetBox.innerHTML = facets.length
+        ? `
+            <h2>Facets</h2>
+            ${facets.map((facet) => `
+                <div class="nm2db-facet-group">
+                    <h3>${nm2dbEscapeHtml(facet.name)}</h3>
+                        <ul>
+                        ${(Array.isArray(facet.values) ? facet.values : []).map((entry) => `
+                            <li><a href="#" class="nm2db-facet-link" data-facet-name="${nm2dbEscapeHtml(facet.name || "")}" data-facet-value="${nm2dbEscapeHtml(entry.value || "")}">${nm2dbEscapeHtml(entry.value || "")} (${nm2dbEscapeHtml(entry.count || 0)})</a></li>
+                        `).join("")}
+                    </ul>
+                </div>
+            `).join("")}
+            <p><a href="#" id="nm2db-clear-facet">Clear facet</a></p>
+        `
+        : "<h2>Facets</h2><p>No facets found.</p>";
+
+    facetBox.querySelectorAll(".nm2db-facet-link").forEach((link) => {
+        link.addEventListener("click", (event) => {
+            event.preventDefault();
+            nm2dbSearch(
+                document.getElementById("nm2db-keyword").value.trim(),
+                link.dataset.facetName || "",
+                link.dataset.facetValue || ""
+            );
+        });
+    });
+    const clearLink = document.getElementById("nm2db-clear-facet");
+    if (clearLink) {
+        clearLink.addEventListener("click", (event) => {
+            event.preventDefault();
+            nm2dbSearch(document.getElementById("nm2db-keyword").value.trim(), "", "");
+        });
+    }
+}
+
+async function nm2dbSearch(keyword, facetName = "", facetValue = "") {
+    const meta = document.getElementById("nm2db-meta");
+    const error = document.getElementById("nm2db-error");
+    const results = document.getElementById("nm2db-results");
+    const params = new URLSearchParams({ keyword, type: "intranet" });
+    if (facetName && facetValue) {
+        params.set("facet_name", facetName);
+        params.set("facet_value", facetValue);
+    }
+
+    error.textContent = "";
+    meta.textContent = "Loading...";
+    results.innerHTML = "";
+
+    try {
+        const response = await fetch(`${nm2dbApiUrl}?${params.toString()}`, {
+            headers: { Accept: "application/json" }
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        nm2dbRenderResults(payload);
+    } catch (err) {
+        meta.textContent = "";
+        error.textContent = `Request failed: ${err.message}`;
+    }
+}
+
+document.getElementById("nm2db-search-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const keyword = document.getElementById("nm2db-keyword").value.trim();
+    nm2dbSearch(keyword, "", "");
+});
+</script>
+
+[% INCLUDE 'intranet-bottom.inc' %]

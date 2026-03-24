@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NM2DB Search</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4efe7;
+      --panel: #fffdf9;
+      --text: #1f2933;
+      --muted: #52606d;
+      --line: #d9cbb8;
+      --accent: #0f766e;
+      --accent-2: #134e4a;
+    }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background: linear-gradient(180deg, #efe7da 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(31, 41, 51, 0.08);
+      padding: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 2rem;
+    }
+    p {
+      color: var(--muted);
+      margin: 0 0 20px;
+    }
+    form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    input, button {
+      font: inherit;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+    }
+    input {
+      background: #fff;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      cursor: pointer;
+    }
+    button:hover {
+      background: var(--accent-2);
+    }
+    .meta {
+      margin: 12px 0 16px;
+      color: var(--muted);
+    }
+    .error {
+      color: #b42318;
+      margin: 12px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      padding: 10px 12px;
+      border-top: 1px solid var(--line);
+    }
+    th {
+      font-size: 0.95rem;
+    }
+    td pre {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 0.85rem;
+    }
+    .empty {
+      color: var(--muted);
+      padding: 16px 0 0;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 20px;
+      align-items: start;
+    }
+    .facets {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      background: #fff;
+    }
+    .facet-group {
+      margin-bottom: 14px;
+    }
+    .facet-group h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+    }
+    .facet-group ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+    a {
+      color: var(--accent-2);
+    }
+    @media (max-width: 800px) {
+      form {
+        grid-template-columns: 1fr;
+      }
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      table, thead, tbody, tr, th, td {
+        display: block;
+      }
+      thead {
+        display: none;
+      }
+      tr {
+        border-top: 1px solid var(--line);
+        padding: 10px 0;
+      }
+      td {
+        border-top: 0;
+        padding: 6px 0;
+      }
+      td::before {
+        content: attr(data-label) ": ";
+        font-weight: bold;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h1>NM2DB Keyword Search</h1>
+      <p>Simple HTML client for the plugin API.</p>
+
+      <form id="search-form">
+        <input id="keyword" name="keyword" type="text" placeholder="Search keyword, for example perl">
+        <button type="submit">Search</button>
+      </form>
+
+      <div id="meta" class="meta"></div>
+      <div id="error" class="error"></div>
+      <div class="layout">
+        <div id="results"></div>
+        <aside id="facets" class="facets"></aside>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const apiUrl = "/api/v1/contrib/nm2db_keyword_search/search";
+    const form = document.getElementById("search-form");
+    const keywordInput = document.getElementById("keyword");
+    const meta = document.getElementById("meta");
+    const error = document.getElementById("error");
+    const results = document.getElementById("results");
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderResults(payload) {
+      const rows = Array.isArray(payload.results) ? payload.results : [];
+      const facets = Array.isArray(payload.facets) ? payload.facets : [];
+      const activeFacet = payload.facet_name && payload.facet_value
+        ? ` | Filter: ${payload.facet_name}=${payload.facet_value}`
+        : "";
+      meta.textContent = rows.length
+        ? `Keyword: ${payload.keyword || ""} | Results: ${payload.count || rows.length}${activeFacet}`
+        : `Keyword: ${payload.keyword || ""} | No results${activeFacet}`;
+
+      if (!rows.length) {
+        results.innerHTML = '<div class="empty">No results found.</div>';
+        document.getElementById("facets").innerHTML = "";
+        return;
+      }
+
+      results.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Record</th>
+              <th>Tag</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td data-label="Record">${row.rendered_html || ""}</td>
+                <td data-label="Tag">${escapeHtml(row.tag || "")}</td>
+                <td data-label="Value">${escapeHtml(row.value || "")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+
+      document.getElementById("facets").innerHTML = facets.length
+        ? `
+          <h2>Facets</h2>
+          ${facets.map((facet) => `
+            <div class="facet-group">
+              <h3>${escapeHtml(facet.name || "")}</h3>
+              <ul>
+                ${(Array.isArray(facet.values) ? facet.values : []).map((entry) => `
+                  <li><a href="#" class="facet-link" data-facet-name="${escapeHtml(facet.name || "")}" data-facet-value="${escapeHtml(entry.value || "")}">${escapeHtml(entry.value || "")} (${escapeHtml(entry.count || 0)})</a></li>
+                `).join("")}
+              </ul>
+            </div>
+          `).join("")}
+          <p><a href="#" id="clear-facet">Clear facet</a></p>
+        `
+        : "<h2>Facets</h2><p>No facets found.</p>";
+
+      document.querySelectorAll(".facet-link").forEach((link) => {
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          search(
+            keywordInput.value.trim(),
+            link.dataset.facetName || "",
+            link.dataset.facetValue || ""
+          );
+        });
+      });
+      const clearFacet = document.getElementById("clear-facet");
+      if (clearFacet) {
+        clearFacet.addEventListener("click", (event) => {
+          event.preventDefault();
+          search(keywordInput.value.trim(), "", "");
+        });
+      }
+    }
+
+    async function search(keyword, facetName = "", facetValue = "") {
+      error.textContent = "";
+      meta.textContent = "Loading...";
+      results.innerHTML = "";
+      const params = new URLSearchParams({ keyword, type: "opac" });
+      if (facetName && facetValue) {
+        params.set("facet_name", facetName);
+        params.set("facet_value", facetValue);
+      }
+
+      try {
+        const response = await fetch(`${apiUrl}?${params.toString()}`, {
+          headers: { "Accept": "application/json" }
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        renderResults(payload);
+      } catch (err) {
+        meta.textContent = "";
+        error.textContent = `Request failed: ${err.message}`;
+      }
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      search(keywordInput.value.trim(), "", "");
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const initialKeyword = params.get("keyword");
+    if (initialKeyword) {
+      keywordInput.value = initialKeyword;
+      search(initialKeyword);
+    }
+  </script>
+</body>
+</html>

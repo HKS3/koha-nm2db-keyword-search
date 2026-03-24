@@ -1,6 +1,9 @@
+[% USE Koha %]
+
 [% INCLUDE 'doc-head-open.inc' %]
 [% IF ( LibraryNameTitle ) %][% LibraryNameTitle %][% ELSE %]Koha online[% END %] catalog &rsaquo; NM2DB keyword search
 [% INCLUDE 'doc-head-close.inc' %]
+[% BLOCK cssinclude %][% END %]
 </head>
 <body id="opac-main" class="scrollto">
 [% INCLUDE 'masthead.inc' %]
@@ -17,7 +20,7 @@
                 <div id="opac-nm2db-keyword-search" class="maincontent">
                     <h1>NM2DB keyword search</h1>
 
-                    <form method="get" action="/api/v1/contrib/nm2db_keyword_search/public/search" class="form-inline">
+                    <form method="get" action="/api/v1/contrib/nm2db_keyword_search/page" class="form-inline">
                         <label for="keyword">Keyword</label>
                         <input id="keyword" name="keyword" type="text" value="[% keyword | html %]" size="40">
                         <button class="btn btn-primary" type="submit">Search</button>
@@ -29,25 +32,48 @@
                     [% END %]
 
                     [% IF results.size %]
-                        <p>Showing [% results.size %] matches.</p>
-                        <table class="table table-bordered table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Biblionumber</th>
-                                    <th>Tag</th>
-                                    <th>Value</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                [% FOREACH row IN results %]
-                                    <tr>
-                                        <td><a href="/cgi-bin/koha/opac-detail.pl?biblionumber=[% row.biblionumber | uri %]">[% row.biblionumber | html %]</a></td>
-                                        <td>[% row.tag | html %]</td>
-                                        <td>[% row.value | html %]</td>
-                                    </tr>
-                                [% END %]
-                            </tbody>
-                        </table>
+                        <p>Showing [% results.size %] matches.[% IF selected_facet_name && selected_facet_value %] Filter: [% selected_facet_name | html %] = [% selected_facet_value | html %] <a href="/api/v1/contrib/nm2db_keyword_search/page?keyword=[% keyword | uri %]">Clear facet</a>[% END %]</p>
+                        <div class="row-fluid">
+                            <div class="span9">
+                                <table class="table table-bordered table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Record</th>
+                                            <th>Tag</th>
+                                            <th>Value</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        [% FOREACH row IN results %]
+                                            <tr>
+                                                <td>[% row.rendered_html %]</td>
+                                                <td>[% row.tag | html %]</td>
+                                                <td>[% row.value | html %]</td>
+                                            </tr>
+                                        [% END %]
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="span3">
+                                <div class="well">
+                                    <h2>Facets</h2>
+                                    [% IF facets.size %]
+                                        [% FOREACH facet IN facets %]
+                                            <div class="facet-group">
+                                                <h3>[% facet.name | html %]</h3>
+                                                <ul>
+                                                    [% FOREACH entry IN facet.values %]
+                                                        <li><a href="/api/v1/contrib/nm2db_keyword_search/page?keyword=[% keyword | uri %]&facet_name=[% facet.name | uri %]&facet_value=[% entry.value | uri %]">[% entry.value | html %] ([% entry.count | html %])</a></li>
+                                                    [% END %]
+                                                </ul>
+                                            </div>
+                                        [% END %]
+                                    [% ELSE %]
+                                        <p>No facets found.</p>
+                                    [% END %]
+                                </div>
+                            </div>
+                        </div>
                     [% END %]
                 </div>
             </div>

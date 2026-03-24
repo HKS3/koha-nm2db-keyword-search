@@ -25,7 +25,8 @@ NM2DB keyword search
                     <label for="keyword">Keyword</label>
                     <input id="keyword" name="keyword" type="text" value="[% keyword | html %]" size="40">
                     <button class="btn btn-primary" type="submit">Search</button>
-                    <a class="btn btn-default" href="[% opac_search_url | html %]">Open OPAC page</a>
+                    <a class="btn btn-default" href="[% opac_search_url | html %]">Open API</a>
+                    <a class="btn btn-default" href="[% '/api/v1/contrib/nm2db_keyword_search/static/ui/search.html' | html %]">Open HTML page</a>
                 </form>
 
                 [% IF keyword && !results.size %]
@@ -40,6 +41,7 @@ NM2DB keyword search
                                 <th>Biblionumber</th>
                                 <th>Tag</th>
                                 <th>Value</th>
+                                <th>XML</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -48,6 +50,7 @@ NM2DB keyword search
                                     <td><a href="/cgi-bin/koha/catalogue/detail.pl?biblionumber=[% row.biblionumber | uri %]">[% row.biblionumber | html %]</a></td>
                                     <td>[% row.tag | html %]</td>
                                     <td>[% row.value | html %]</td>
+                                    <td><pre style="max-width:40rem; white-space:pre-wrap;">[% row.xml | html %]</pre></td>
                                 </tr>
                             [% END %]
                         </tbody>
