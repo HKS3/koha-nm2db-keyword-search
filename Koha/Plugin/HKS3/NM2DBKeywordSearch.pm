@@ -14,7 +14,7 @@ use Cwd qw(abs_path);
 use Mojo::JSON qw(decode_json);
 use Koha::Biblios;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 our $metadata = {
     name            => 'NM2DB Keyword Search',
@@ -178,34 +178,46 @@ sub search_records {
     my $facet_value_sql = defined $facet_value && length $facet_value ? $dbh->quote($facet_value) : undef;
     my $sql = qq{
         SELECT
-            r.biblionumber,
-            MAX(MATCH(s.value) AGAINST($search IN NATURAL LANGUAGE MODE)) AS relevance,
-            GROUP_CONCAT( DISTINCT f.tag ORDER BY f.tag SEPARATOR ', ' ) AS tag,
-            GROUP_CONCAT( DISTINCT CONCAT(f.tag, ': ', s.value) ORDER BY f.tag, s.value SEPARATOR '\n' ) AS value,
+            m.biblionumber,
+            SUM(m.weight) AS weight_sum,
+            MAX(m.relevance) AS relevance,
+            GROUP_CONCAT( DISTINCT m.tag ORDER BY m.tag SEPARATOR ', ' ) AS tag,
+            GROUP_CONCAT( DISTINCT m.display_value ORDER BY m.tag, m.raw_value SEPARATOR '\n' ) AS value,
             bm.metadata AS xml
-        FROM nm2db_records r
-        JOIN nm2db_fields f
-            ON f.record_id = r.id
-        JOIN nm2db_subfields s
-            ON s.field_id = f.id
-        JOIN search_marc_map smm
-            ON smm.marc_type = 'marc21'
-           AND smm.index_name = 'biblios'
-           AND LEFT(smm.marc_field, 3) = f.tag
-           AND (
-                CHAR_LENGTH(smm.marc_field) = 3
-                OR LOCATE(s.code, SUBSTRING(smm.marc_field, 4)) > 0
-           )
-        JOIN search_marc_to_field smtf
-            ON smtf.search_marc_map_id = smm.id
-        JOIN search_field sf
-            ON sf.id = smtf.search_field_id
+        FROM (
+            SELECT
+                r.id AS record_id,
+                r.biblionumber,
+                f.tag,
+                s.value AS raw_value,
+                COALESCE(sf.weight, 0) AS weight,
+                MATCH(s.value) AGAINST($search IN boolean MODE) AS relevance,
+                CONCAT(f.tag, ' [w=', COALESCE(sf.weight, 0), ']: ', s.value) AS display_value
+            FROM nm2db_records r
+            JOIN nm2db_fields f
+                ON f.record_id = r.id
+            JOIN nm2db_subfields s
+                ON s.field_id = f.id
+            JOIN search_marc_map smm
+                ON smm.marc_type = 'marc21'
+               AND smm.index_name = 'biblios'
+               AND LEFT(smm.marc_field, 3) = f.tag
+               AND (
+                    CHAR_LENGTH(smm.marc_field) = 3
+                    OR LOCATE(s.code, SUBSTRING(smm.marc_field, 4)) > 0
+               )
+            JOIN search_marc_to_field smtf
+                ON smtf.search_marc_map_id = smm.id
+            JOIN search_field sf
+                ON sf.id = smtf.search_field_id
+            WHERE r.type = 'biblio'
+              AND smtf.search = 1
+              AND MATCH(s.value) AGAINST($search IN boolean MODE)
+        ) m
         LEFT JOIN biblio_metadata bm
-            ON bm.biblionumber = r.biblionumber
+            ON bm.biblionumber = m.biblionumber
            AND bm.format = 'marcxml'
-        WHERE r.type = 'biblio'
-          AND smtf.search = 1
-          AND MATCH(s.value) AGAINST($search IN NATURAL LANGUAGE MODE)
+        WHERE 1 = 1
     };
 
     if ( defined $facet_name_sql && defined $facet_value_sql ) {
@@ -227,7 +239,7 @@ sub search_records {
                   ON smtf2.search_marc_map_id = smm2.id
               JOIN search_field sf2
                   ON sf2.id = smtf2.search_field_id
-              WHERE ff.record_id = r.id
+              WHERE ff.record_id = m.record_id
                 AND smtf2.facet = 1
                 AND sf2.name = $facet_name_sql
                 AND ss.value = $facet_value_sql
@@ -236,8 +248,8 @@ sub search_records {
     }
 
     $sql .= qq{
-        GROUP BY r.biblionumber, bm.metadata
-        ORDER BY relevance DESC, r.biblionumber
+        GROUP BY m.biblionumber, bm.metadata
+        ORDER BY weight_sum DESC, relevance DESC, m.biblionumber
         LIMIT 200
     };
 
@@ -280,7 +292,7 @@ sub search_facets {
             ON sf.id = smtf.search_field_id
         WHERE r.type = 'biblio'
           AND smtf.facet = 1
-          AND MATCH(s.value) AGAINST($search IN NATURAL LANGUAGE MODE)
+          AND MATCH(s.value) AGAINST($search IN boolean MODE)
     };
 
     if ( defined $facet_name_sql && defined $facet_value_sql ) {
