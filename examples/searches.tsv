@@ -1,0 +1,14 @@
+# label	plugin query	Koha query
+Perl keyword	perl	perl
+Database keyword	database	database
+Law keyword	law	law
+History keyword	history	history
+Fiction keyword	fiction	fiction
+Author keyword	conway	conway
+Flußperlmuschel keyword	Flußperlmuschel	Flußperlmuschel
+Short exact title keyword	Blumen	Blumen
+Exact title with stopwords	Programme of the jornadas de taxonomía vegetal III	Programme of the jornadas de taxonomía vegetal III
+Long exact title from typeahead	Brutzeitliche Einnischung des Weißrückenspechtes (Picoides leucotos) im Vergleich zum Buntspecht (Picoides major) in montanen Mischwäldern der nördlichen Kalkalpen	Brutzeitliche Einnischung des Weißrückenspechtes (Picoides leucotos) im Vergleich zum Buntspecht (Picoides major) in montanen Mischwäldern der nördlichen Kalkalpen
+Vogelwelt Wiens title	Vogelwelt Wiens	Vogelwelt Wiens
+Science fiction phrase	Science fiction	Science fiction
+Computer programming phrase	Computer programming	Computer programming

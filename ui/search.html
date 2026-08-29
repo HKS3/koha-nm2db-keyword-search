@@ -47,6 +47,19 @@
       gap: 12px;
       margin-bottom: 20px;
     }
+    .form-refine {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+    }
+    .checkbox {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      white-space: nowrap;
+    }
     input, button {
       font: inherit;
       padding: 12px 14px;
@@ -127,6 +140,12 @@
       form {
         grid-template-columns: 1fr;
       }
+      .form-refine {
+        grid-template-columns: 1fr;
+      }
+      .checkbox {
+        white-space: normal;
+      }
       .layout {
         grid-template-columns: 1fr;
       }
@@ -160,6 +179,13 @@
       <form id="search-form">
         <input id="keyword" name="keyword" type="text" placeholder="Search keyword, for example perl">
         <button type="submit">Search</button>
+        <div class="form-refine">
+          <input id="refine" name="refine" type="text" placeholder="Search within results">
+          <label class="checkbox">
+            <input id="available-only" name="available_only" type="checkbox" value="1">
+            Available items only
+          </label>
+        </div>
       </form>
 
       <div id="meta" class="meta"></div>
@@ -175,6 +201,8 @@
     const apiUrl = "/api/v1/contrib/nm2db_keyword_search/search";
     const form = document.getElementById("search-form");
     const keywordInput = document.getElementById("keyword");
+    const refineInput = document.getElementById("refine");
+    const availableInput = document.getElementById("available-only");
     const meta = document.getElementById("meta");
     const error = document.getElementById("error");
     const results = document.getElementById("results");
@@ -191,12 +219,20 @@
     function renderResults(payload) {
       const rows = Array.isArray(payload.results) ? payload.results : [];
       const facets = Array.isArray(payload.facets) ? payload.facets : [];
-      const activeFacet = payload.facet_name && payload.facet_value
-        ? ` | Filter: ${payload.facet_name}=${payload.facet_value}`
-        : "";
+      const activeFilters = [];
+      if (payload.facet_name && payload.facet_value) {
+        activeFilters.push(`Facet: ${payload.facet_name}=${payload.facet_value}`);
+      }
+      if (payload.refine) {
+        activeFilters.push(`Within: ${payload.refine}`);
+      }
+      if (payload.available_only) {
+        activeFilters.push("Available only");
+      }
+      const filterText = activeFilters.length ? ` | ${activeFilters.join(" | ")}` : "";
       meta.textContent = rows.length
-        ? `Keyword: ${payload.keyword || ""} | Results: ${payload.count || rows.length}${activeFacet}`
-        : `Keyword: ${payload.keyword || ""} | No results${activeFacet}`;
+        ? `Keyword: ${payload.keyword || ""} | Results: ${payload.count || rows.length}${filterText}`
+        : `Keyword: ${payload.keyword || ""} | No results${filterText}`;
 
       if (!rows.length) {
         results.innerHTML = '<div class="empty">No results found.</div>';
@@ -230,7 +266,7 @@
           <h2>Facets</h2>
           ${facets.map((facet) => `
             <div class="facet-group">
-              <h3>${escapeHtml(facet.name || "")}</h3>
+              <h3>${escapeHtml(facet.label || facet.name || "")}</h3>
               <ul>
                 ${(Array.isArray(facet.values) ? facet.values : []).map((entry) => `
                   <li><a href="#" class="facet-link" data-facet-name="${escapeHtml(facet.name || "")}" data-facet-value="${escapeHtml(entry.value || "")}">${escapeHtml(entry.value || "")} (${escapeHtml(entry.count || 0)})</a></li>
@@ -265,25 +301,50 @@
       error.textContent = "";
       meta.textContent = "Loading...";
       results.innerHTML = "";
+      document.getElementById("facets").innerHTML = "<h2>Facets</h2><p>Loading...</p>";
       const params = new URLSearchParams({ keyword, type: "opac" });
       if (facetName && facetValue) {
         params.set("facet_name", facetName);
         params.set("facet_value", facetValue);
       }
+      const refine = refineInput.value.trim();
+      if (refine) {
+        params.set("refine", refine);
+      }
+      if (availableInput.checked) {
+        params.set("available_only", "1");
+      }
 
       try {
-        const response = await fetch(`${apiUrl}?${params.toString()}`, {
-          headers: { "Accept": "application/json" }
+        const resultsParams = new URLSearchParams(params);
+        const facetsParams = new URLSearchParams(params);
+        resultsParams.set("include", "results");
+        facetsParams.set("include", "facets");
+
+        const [resultsPayload, facetsPayload] = await Promise.all([
+          fetchJson(resultsParams),
+          fetchJson(facetsParams)
+        ]);
+
+        renderResults({
+          ...resultsPayload,
+          facets: Array.isArray(facetsPayload.facets) ? facetsPayload.facets : []
         });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        renderResults(payload);
       } catch (err) {
         meta.textContent = "";
         error.textContent = `Request failed: ${err.message}`;
+        document.getElementById("facets").innerHTML = "";
       }
+    }
+
+    async function fetchJson(params) {
+      const response = await fetch(`${apiUrl}?${params.toString()}`, {
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.json();
     }
 
     form.addEventListener("submit", (event) => {
@@ -293,6 +354,14 @@
 
     const params = new URLSearchParams(window.location.search);
     const initialKeyword = params.get("keyword");
+    const initialRefine = params.get("refine");
+    const initialAvailable = params.get("available_only");
+    if (initialRefine) {
+      refineInput.value = initialRefine;
+    }
+    if (initialAvailable === "1" || initialAvailable === "true") {
+      availableInput.checked = true;
+    }
     if (initialKeyword) {
       keywordInput.value = initialKeyword;
       search(initialKeyword);

@@ -1,0 +1,103 @@
+# label	plugin query	Koha query
+Perl keyword	perl	perl
+Database keyword	database	database
+Law keyword	law	law
+History keyword	history	history
+Fiction keyword	fiction	fiction
+Author Conway	conway	conway
+Flußperlmuschel keyword	Flußperlmuschel	Flußperlmuschel
+Short exact title keyword	Blumen	Blumen
+Österreich keyword	Österreich	Österreich
+Vogelwelt Wiens	Vogelwelt Wiens	Vogelwelt Wiens
+Book keyword	book	book
+London keyword	london	london
+English keyword	english	english
+York keyword	york	york
+University keyword	university	university
+Computer keyword	computer	computer
+Language keyword	language	language
+Index keyword	index	index
+Oxford keyword	oxford	oxford
+Translated keyword	translated	translated
+Paper keyword	paper	paper
+Program keyword	program	program
+Sound keyword	sound	sound
+Penguin keyword	penguin	penguin
+Classics keyword	classics	classics
+Digital keyword	digital	digital
+Music keyword	music	music
+Disc keyword	disc	disc
+United keyword	united	united
+World keyword	world	world
+David keyword	david	david
+John keyword	john	john
+Notes keyword	notes	notes
+Baker keyword	baker	baker
+Biography keyword	biography	biography
+Century keyword	century	century
+Greek keyword	greek	greek
+Life keyword	life	life
+Programming keyword	programming	programming
+England keyword	england	england
+Great keyword	great	great
+Love keyword	love	love
+Richard keyword	richard	richard
+Cambridge keyword	cambridge	cambridge
+Translation keyword	translation	translation
+Scotland keyword	scotland	scotland
+Development keyword	development	development
+Drama keyword	drama	drama
+River keyword	river	river
+Science keyword	science	science
+Stories keyword	stories	stories
+Translations keyword	translations	translations
+Addison keyword	addison	addison
+Wesley keyword	wesley	wesley
+Association keyword	association	association
+Author keyword	author	author
+Blues keyword	blues	blues
+Data keyword	data	data
+Film keyword	film	film
+Modern keyword	modern	modern
+Network keyword	network	network
+Robert keyword	robert	robert
+Scottish keyword	scottish	scottish
+Systems keyword	systems	systems
+Time keyword	time	time
+Britain keyword	britain	britain
+Distributed keyword	distributed	distributed
+James keyword	james	james
+Martin keyword	martin	martin
+Michael keyword	michael	michael
+Poems keyword	poems	poems
+Text keyword	text	text
+Washington keyword	washington	washington
+William keyword	william	william
+City keyword	city	city
+Collection keyword	collection	collection
+Cover keyword	cover	cover
+Editor keyword	editor	editor
+Films keyword	films	films
+Group keyword	group	group
+Illustrations keyword	illustrations	illustrations
+Musical keyword	musical	musical
+Office keyword	office	office
+Peter keyword	peter	peter
+Research keyword	research	research
+Rock keyword	rock	rock
+Selections keyword	selections	selections
+Story keyword	story	story
+Three keyword	three	three
+Guide keyword	guide	guide
+Computer programming	computer programming	computer programming
+English literature	english literature	english literature
+Rock music	rock music	rock music
+Modern history	modern history	modern history
+Data systems	data systems	data systems
+Greek drama	greek drama	greek drama
+Science fiction	science fiction	science fiction
+Exact title with stopwords	Programme of the jornadas de taxonomía vegetal III	Programme of the jornadas de taxonomía vegetal III
+Long exact title from typeahead	Brutzeitliche Einnischung des Weißrückenspechtes (Picoides leucotos) im Vergleich zum Buntspecht (Picoides major) in montanen Mischwäldern der nördlichen Kalkalpen	Brutzeitliche Einnischung des Weißrückenspechtes (Picoides leucotos) im Vergleich zum Buntspecht (Picoides major) in montanen Mischwäldern der nördlichen Kalkalpen
+Vogelwelt Wiens title	Vogelwelt Wiens	Vogelwelt Wiens
+Science fiction phrase	Science fiction	Science fiction
+Computer programming phrase	Computer programming	Computer programming

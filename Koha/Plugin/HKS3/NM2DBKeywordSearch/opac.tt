@@ -22,9 +22,21 @@
 
                     <form method="get" action="/api/v1/contrib/nm2db_keyword_search/page" class="form-inline">
                         <label for="keyword">Keyword</label>
-                        <input id="keyword" name="keyword" type="text" value="[% keyword | html %]" size="40">
+                        <input id="keyword" name="keyword" type="text" value="[% keyword | html %]" size="40" list="nm2db-opac-suggestions" autocomplete="off">
+                        <datalist id="nm2db-opac-suggestions"></datalist>
+                        <label for="refine">Within results</label>
+                        <input id="refine" name="refine" type="text" value="[% refine | html %]" size="30" autocomplete="off">
+                        <label class="checkbox inline" for="available_only">
+                            <input id="available_only" name="available_only" type="checkbox" value="1" [% IF available_only %]checked="checked"[% END %]>
+                            Available items only
+                        </label>
+                        [% IF selected_facet_name && selected_facet_value %]
+                            <input type="hidden" name="facet_name" value="[% selected_facet_name | html %]">
+                            <input type="hidden" name="facet_value" value="[% selected_facet_value | html %]">
+                        [% END %]
                         <button class="btn btn-primary" type="submit">Search</button>
                         <a class="btn btn-link" href="[% intranet_plugin_url | html %]">Staff page</a>
+                        <a class="btn btn-link" href="/api/v1/contrib/nm2db_keyword_search/static/ui/compare.html">Compare web search</a>
                     </form>
 
                     [% IF keyword && !results.size %]
@@ -32,7 +44,15 @@
                     [% END %]
 
                     [% IF results.size %]
-                        <p>Showing [% results.size %] matches.[% IF selected_facet_name && selected_facet_value %] Filter: [% selected_facet_name | html %] = [% selected_facet_value | html %] <a href="/api/v1/contrib/nm2db_keyword_search/page?keyword=[% keyword | uri %]">Clear facet</a>[% END %]</p>
+                        <p>
+                            Showing [% results.size %] matches.
+                            [% IF refine %] Within: [% refine | html %].[% END %]
+                            [% IF available_only %] Available items only.[% END %]
+                            [% IF selected_facet_name && selected_facet_value %]
+                                Filter: [% selected_facet_name | html %] = [% selected_facet_value | html %]
+                                <a href="/api/v1/contrib/nm2db_keyword_search/page?keyword=[% keyword | uri %][% IF refine %]&refine=[% refine | uri %][% END %][% IF available_only %]&available_only=1[% END %]">Clear facet</a>
+                            [% END %]
+                        </p>
                         <div class="row-fluid">
                             <div class="span9">
                                 <table class="table table-bordered table-striped">
@@ -60,10 +80,10 @@
                                     [% IF facets.size %]
                                         [% FOREACH facet IN facets %]
                                             <div class="facet-group">
-                                                <h3>[% facet.name | html %]</h3>
+                                                <h3>[% IF facet.label %][% facet.label | html %][% ELSE %][% facet.name | html %][% END %]</h3>
                                                 <ul>
                                                     [% FOREACH entry IN facet.values %]
-                                                        <li><a href="/api/v1/contrib/nm2db_keyword_search/page?keyword=[% keyword | uri %]&facet_name=[% facet.name | uri %]&facet_value=[% entry.value | uri %]">[% entry.value | html %] ([% entry.count | html %])</a></li>
+                                                        <li><a href="/api/v1/contrib/nm2db_keyword_search/page?keyword=[% keyword | uri %][% IF refine %]&refine=[% refine | uri %][% END %][% IF available_only %]&available_only=1[% END %]&facet_name=[% facet.name | uri %]&facet_value=[% entry.value | uri %]">[% entry.value | html %] ([% entry.count | html %])</a></li>
                                                     [% END %]
                                                 </ul>
                                             </div>
@@ -82,4 +102,54 @@
 </div>
 
 [% INCLUDE 'opac-bottom.inc' %]
-[% BLOCK jsinclude %][% END %]
+[% BLOCK jsinclude %]
+<script>
+(function() {
+    const input = document.getElementById("keyword");
+    const datalist = document.getElementById("nm2db-opac-suggestions");
+    const suggestionsUrl = "[% api_suggestions_url | html %]";
+    let timer;
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    async function loadSuggestions(term) {
+        datalist.innerHTML = "";
+        if (term.length < 2) {
+            return;
+        }
+
+        const params = new URLSearchParams({ term, limit: "10" });
+        const response = await fetch(`${suggestionsUrl}?${params.toString()}`, {
+            headers: { Accept: "application/json" }
+        });
+        if (!response.ok) {
+            return;
+        }
+
+        const payload = await response.json();
+        const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+        datalist.innerHTML = suggestions.map((entry) => `
+            <option value="${escapeHtml(entry.value || "")}" label="${escapeHtml(entry.field || "")}"></option>
+        `).join("");
+    }
+
+    if (input && datalist && suggestionsUrl) {
+        input.addEventListener("input", function(event) {
+            window.clearTimeout(timer);
+            timer = window.setTimeout(function() {
+                loadSuggestions(event.target.value.trim()).catch(function() {
+                    datalist.innerHTML = "";
+                });
+            }, 200);
+        });
+    }
+}());
+</script>
+[% END %]

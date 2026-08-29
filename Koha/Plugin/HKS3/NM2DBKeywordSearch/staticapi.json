@@ -5,6 +5,61 @@
       "tags": [
         "pluginStatic"
       ],
+      "parameters": [
+        {
+          "name": "keyword",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "refine",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "available_only",
+          "in": "query",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "File found",
+          "schema": {
+            "type": "file"
+          }
+        },
+        "404": {
+          "description": "File not found",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "/ui/compare.html": {
+    "get": {
+      "x-mojo-to": "Static#get",
+      "tags": [
+        "pluginStatic"
+      ],
+      "parameters": [
+        {
+          "name": "keyword",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        }
+      ],
       "responses": {
         "200": {
           "description": "File found",

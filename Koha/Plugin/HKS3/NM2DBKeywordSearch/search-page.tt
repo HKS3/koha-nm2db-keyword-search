@@ -9,7 +9,21 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
+    margin-bottom: 10px;
+  }
+  .nm2db-refine-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
     margin-bottom: 16px;
+  }
+  .nm2db-checkbox {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+    margin: 0;
+    white-space: nowrap;
   }
   .nm2db-meta {
     color: #52606d;
@@ -54,6 +68,12 @@
     padding-left: 18px;
   }
   @media (max-width: 900px) {
+    .nm2db-refine-grid {
+      grid-template-columns: 1fr;
+    }
+    .nm2db-checkbox {
+      white-space: normal;
+    }
     .nm2db-layout {
       grid-template-columns: 1fr;
     }
@@ -80,15 +100,33 @@
                 <div class="page-section">
                     <form id="nm2db-search-form">
                         <div class="nm2db-grid">
-                            <input id="nm2db-keyword" name="keyword" type="text" class="form-control" placeholder="Search keyword, for example perl">
+                            <input id="nm2db-keyword" name="keyword" type="text" class="form-control" list="nm2db-suggestions" autocomplete="off" placeholder="Search keyword, for example perl">
+                            <datalist id="nm2db-suggestions"></datalist>
                             <button type="submit" class="btn btn-primary">Search</button>
+                        </div>
+                        <div class="nm2db-refine-grid">
+                            <input id="nm2db-refine" name="refine" type="text" class="form-control" autocomplete="off" placeholder="Search within results">
+                            <label class="nm2db-checkbox" for="nm2db-available-only">
+                                <input id="nm2db-available-only" name="available_only" type="checkbox" value="1">
+                                Available items only
+                            </label>
                         </div>
                     </form>
 
                     <div id="nm2db-meta" class="nm2db-meta"></div>
                     <div id="nm2db-error" class="nm2db-error"></div>
                     <div class="nm2db-layout">
-                        <div id="nm2db-results" class="nm2db-results"></div>
+                        <div id="nm2db-results" class="nm2db-results">
+                            <table id="nm2db-results-table" class="table table-bordered table-striped dt-responsive nowrap" style="width:100%">
+                                <thead>
+                                    <tr>
+                                        <th>Record</th>
+                                        <th>Tag</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                            </table>
+                        </div>
                         <aside id="nm2db-facets" class="nm2db-facets"></aside>
                     </div>
                 </div>
@@ -97,8 +135,22 @@
     </div>
 </div>
 
+[% MACRO jsinclude BLOCK %]
+[% INCLUDE 'datatables.inc' %]
 <script>
 const nm2dbApiUrl = "[% api_search_url | html %]";
+const nm2dbSuggestionsUrl = "[% api_suggestions_url | html %]";
+const nm2dbState = {
+    keyword: "",
+    facetName: "",
+    facetValue: "",
+    refine: "",
+    availableOnly: false,
+    requestId: 0,
+};
+let nm2dbResultsTable;
+let nm2dbLiveTimer;
+let nm2dbSuggestionTimer;
 
 function nm2dbEscapeHtml(value) {
     return String(value)
@@ -109,54 +161,56 @@ function nm2dbEscapeHtml(value) {
         .replace(/'/g, "&#39;");
 }
 
-function nm2dbRenderResults(payload) {
+function nm2dbBuildParams(include) {
+    const params = new URLSearchParams({
+        keyword: nm2dbState.keyword,
+        type: "intranet",
+        include,
+    });
+    if (nm2dbState.facetName && nm2dbState.facetValue) {
+        params.set("facet_name", nm2dbState.facetName);
+        params.set("facet_value", nm2dbState.facetValue);
+    }
+    if (nm2dbState.refine) {
+        params.set("refine", nm2dbState.refine);
+    }
+    if (nm2dbState.availableOnly) {
+        params.set("available_only", "1");
+    }
+    return params;
+}
+
+function nm2dbUpdateMeta(payload) {
     const rows = Array.isArray(payload.results) ? payload.results : [];
-    const facets = Array.isArray(payload.facets) ? payload.facets : [];
+    const activeFilters = [];
+    if (payload.facet_name && payload.facet_value) {
+        activeFilters.push(`Facet: ${payload.facet_name}=${payload.facet_value}`);
+    }
+    if (payload.refine) {
+        activeFilters.push(`Within: ${payload.refine}`);
+    }
+    if (payload.available_only) {
+        activeFilters.push("Available only");
+    }
+    const filterText = activeFilters.length ? ` | ${activeFilters.join(" | ")}` : "";
     const meta = document.getElementById("nm2db-meta");
-    const results = document.getElementById("nm2db-results");
-    const facetBox = document.getElementById("nm2db-facets");
-    const activeFacet = payload.facet_name && payload.facet_value
-        ? ` | Filter: ${payload.facet_name}=${payload.facet_value}`
-        : "";
 
     meta.textContent = rows.length
-        ? `Keyword: ${payload.keyword || ""} | Results: ${payload.count || rows.length}${activeFacet}`
-        : `Keyword: ${payload.keyword || ""} | No results${activeFacet}`;
+        ? `Keyword: ${payload.keyword || ""} | Results: ${payload.count || rows.length}${filterText}`
+        : `Keyword: ${payload.keyword || ""} | No results${filterText}`;
+}
 
-    if (!rows.length) {
-        results.innerHTML = "<p>No results found.</p>";
-        facetBox.innerHTML = "";
-        return;
-    }
-
-    results.innerHTML = `
-        <table class="table table-bordered table-striped">
-            <thead>
-                <tr>
-                    <th>Record</th>
-                    <th>Tag</th>
-                    <th>Value</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rows.map((row) => `
-                    <tr>
-                        <td>${row.rendered_html || ""}</td>
-                        <td>${nm2dbEscapeHtml(row.tag || "")}</td>
-                        <td>${nm2dbEscapeHtml(row.value || "")}</td>
-                    </tr>
-                `).join("")}
-            </tbody>
-        </table>
-    `;
+function nm2dbRenderFacets(payload) {
+    const facets = Array.isArray(payload.facets) ? payload.facets : [];
+    const facetBox = document.getElementById("nm2db-facets");
 
     facetBox.innerHTML = facets.length
         ? `
             <h2>Facets</h2>
             ${facets.map((facet) => `
                 <div class="nm2db-facet-group">
-                    <h3>${nm2dbEscapeHtml(facet.name)}</h3>
-                        <ul>
+                    <h3>${nm2dbEscapeHtml(facet.label || facet.name)}</h3>
+                    <ul>
                         ${(Array.isArray(facet.values) ? facet.values : []).map((entry) => `
                             <li><a href="#" class="nm2db-facet-link" data-facet-name="${nm2dbEscapeHtml(facet.name || "")}" data-facet-value="${nm2dbEscapeHtml(entry.value || "")}">${nm2dbEscapeHtml(entry.value || "")} (${nm2dbEscapeHtml(entry.count || 0)})</a></li>
                         `).join("")}
@@ -186,33 +240,155 @@ function nm2dbRenderResults(payload) {
     }
 }
 
+function nm2dbInitTable() {
+    nm2dbResultsTable = $("#nm2db-results-table").DataTable({
+        data: [],
+        autoWidth: false,
+        deferRender: true,
+        pageLength: 25,
+        processing: true,
+        responsive: true,
+        ajax: function(_data, callback) {
+            if (!nm2dbState.keyword) {
+                document.getElementById("nm2db-meta").textContent = "";
+                callback({ data: [] });
+                return;
+            }
+
+            nm2dbFetchJson(nm2dbBuildParams("results"))
+                .then((payload) => {
+                    nm2dbUpdateMeta(payload);
+                    callback({ data: Array.isArray(payload.results) ? payload.results : [] });
+                })
+                .catch((err) => {
+                    document.getElementById("nm2db-meta").textContent = "";
+                    document.getElementById("nm2db-error").textContent = `Request failed: ${err.message}`;
+                    callback({ data: [] });
+                });
+        },
+        columns: [
+            {
+                data: "rendered_html",
+                render: function(data) {
+                    return data || "";
+                },
+            },
+            {
+                data: "tag",
+                render: function(data) {
+                    return nm2dbEscapeHtml(data || "");
+                },
+            },
+            {
+                data: "value",
+                render: function(data) {
+                    return `<pre>${nm2dbEscapeHtml(data || "")}</pre>`;
+                },
+            },
+        ],
+    });
+}
+
 async function nm2dbSearch(keyword, facetName = "", facetValue = "") {
-    const meta = document.getElementById("nm2db-meta");
     const error = document.getElementById("nm2db-error");
-    const results = document.getElementById("nm2db-results");
-    const params = new URLSearchParams({ keyword, type: "intranet" });
-    if (facetName && facetValue) {
-        params.set("facet_name", facetName);
-        params.set("facet_value", facetValue);
-    }
+    const facetBox = document.getElementById("nm2db-facets");
+    const requestId = ++nm2dbState.requestId;
+    const refineInput = document.getElementById("nm2db-refine");
+    const availableInput = document.getElementById("nm2db-available-only");
+
+    nm2dbState.keyword = keyword;
+    nm2dbState.facetName = facetName;
+    nm2dbState.facetValue = facetValue;
+    nm2dbState.refine = refineInput.value.trim();
+    nm2dbState.availableOnly = availableInput.checked;
 
     error.textContent = "";
-    meta.textContent = "Loading...";
-    results.innerHTML = "";
+    document.getElementById("nm2db-meta").textContent = keyword ? "Loading..." : "";
+    facetBox.innerHTML = "<h2>Facets</h2><p>Loading...</p>";
 
-    try {
-        const response = await fetch(`${nm2dbApiUrl}?${params.toString()}`, {
-            headers: { Accept: "application/json" }
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        nm2dbRenderResults(payload);
-    } catch (err) {
-        meta.textContent = "";
-        error.textContent = `Request failed: ${err.message}`;
+    if (!keyword) {
+        nm2dbResultsTable.clear().draw();
+        facetBox.innerHTML = "";
+        return;
     }
+
+    nm2dbResultsTable.ajax.reload();
+    nm2dbFetchJson(nm2dbBuildParams("facets"))
+        .then((payload) => {
+            if (requestId === nm2dbState.requestId) {
+                nm2dbRenderFacets(payload);
+            }
+        })
+        .catch((err) => {
+            if (requestId === nm2dbState.requestId) {
+                facetBox.innerHTML = "";
+                error.textContent = `Request failed: ${err.message}`;
+            }
+        });
+}
+
+async function nm2dbFetchJson(params) {
+    const response = await fetch(`${nm2dbApiUrl}?${params.toString()}`, {
+        headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+}
+
+function nm2dbQueueLiveSearch() {
+    const term = document.getElementById("nm2db-keyword").value.trim();
+    if (term.length === 1) {
+        nm2dbSearch("", "", "");
+        return;
+    }
+
+    window.clearTimeout(nm2dbLiveTimer);
+    nm2dbLiveTimer = window.setTimeout(() => {
+        nm2dbSearch(term, "", "");
+    }, 350);
+}
+
+function nm2dbQueueRefineSearch() {
+    const keyword = document.getElementById("nm2db-keyword").value.trim();
+    if (!keyword) {
+        return;
+    }
+
+    window.clearTimeout(nm2dbLiveTimer);
+    nm2dbLiveTimer = window.setTimeout(() => {
+        nm2dbSearch(keyword, nm2dbState.facetName, nm2dbState.facetValue);
+    }, 350);
+}
+
+function nm2dbQueueSuggestions(value) {
+    window.clearTimeout(nm2dbSuggestionTimer);
+    nm2dbSuggestionTimer = window.setTimeout(() => {
+        nm2dbLoadSuggestions(value);
+    }, 200);
+}
+
+async function nm2dbLoadSuggestions(value) {
+    const datalist = document.getElementById("nm2db-suggestions");
+    const term = value.trim();
+    datalist.innerHTML = "";
+    if (term.length < 2) {
+        return;
+    }
+
+    const params = new URLSearchParams({ term, limit: "10" });
+    const response = await fetch(`${nm2dbSuggestionsUrl}?${params.toString()}`, {
+        headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+        return;
+    }
+    const payload = await response.json();
+    const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+    datalist.innerHTML = suggestions.map((entry) => `
+        <option value="${nm2dbEscapeHtml(entry.value || "")}" label="${nm2dbEscapeHtml(entry.field || "")}"></option>
+    `).join("");
 }
 
 document.getElementById("nm2db-search-form").addEventListener("submit", (event) => {
@@ -220,6 +396,28 @@ document.getElementById("nm2db-search-form").addEventListener("submit", (event) 
     const keyword = document.getElementById("nm2db-keyword").value.trim();
     nm2dbSearch(keyword, "", "");
 });
+
+document.getElementById("nm2db-keyword").addEventListener("input", (event) => {
+    nm2dbQueueSuggestions(event.target.value);
+    nm2dbQueueLiveSearch();
+});
+
+document.getElementById("nm2db-refine").addEventListener("input", () => {
+    nm2dbQueueRefineSearch();
+});
+
+document.getElementById("nm2db-available-only").addEventListener("change", () => {
+    nm2dbSearch(
+        document.getElementById("nm2db-keyword").value.trim(),
+        nm2dbState.facetName,
+        nm2dbState.facetValue
+    );
+});
+
+$(document).ready(function() {
+    nm2dbInitTable();
+});
 </script>
+[% END %]
 
 [% INCLUDE 'intranet-bottom.inc' %]

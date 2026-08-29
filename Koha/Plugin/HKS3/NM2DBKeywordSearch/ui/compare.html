@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NM2DB Search Compare</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f4;
+      --surface: #ffffff;
+      --text: #1f2933;
+      --muted: #5f6c72;
+      --line: #d6ddd8;
+      --accent: #166534;
+      --accent-dark: #14532d;
+      --warn: #a15c07;
+      --bad: #b42318;
+      --good: #0f766e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    main {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 1.55rem;
+      font-weight: 650;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    textarea,
+    input,
+    button {
+      font: inherit;
+    }
+
+    textarea,
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    textarea {
+      min-height: 150px;
+      padding: 10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      resize: vertical;
+    }
+
+    input {
+      padding: 8px 10px;
+    }
+
+    button {
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      min-height: 38px;
+      padding: 8px 14px;
+      font-weight: 650;
+    }
+
+    button:hover,
+    button:focus {
+      background: var(--accent-dark);
+    }
+
+    button.secondary {
+      background: var(--surface);
+      border-color: var(--line);
+      color: var(--text);
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 140px;
+      gap: 14px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 14px 0 20px;
+    }
+
+    .status {
+      min-height: 22px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .status.error {
+      color: var(--bad);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      background: var(--surface);
+      border: 1px solid var(--line);
+    }
+
+    th,
+    td {
+      text-align: left;
+      vertical-align: top;
+      border-top: 1px solid var(--line);
+      padding: 9px 10px;
+    }
+
+    th {
+      border-top: 0;
+      background: #edf2ee;
+      color: #2b3a33;
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    .col-label {
+      width: 15%;
+    }
+
+    .col-count {
+      width: 8%;
+    }
+
+    .col-status {
+      width: 8%;
+    }
+
+    .result-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .result-list li {
+      padding: 4px 0;
+      border-bottom: 1px solid #eef1ee;
+    }
+
+    .result-list li:last-child {
+      border-bottom: 0;
+    }
+
+    .match {
+      color: var(--good);
+      font-weight: 700;
+    }
+
+    .diff {
+      color: var(--bad);
+      font-weight: 700;
+    }
+
+    .warn {
+      color: var(--warn);
+      font-weight: 700;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    a {
+      color: var(--accent-dark);
+    }
+
+    @media (max-width: 900px) {
+      main {
+        padding: 16px;
+      }
+
+      .controls {
+        grid-template-columns: 1fr;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tr {
+        border-top: 1px solid var(--line);
+      }
+
+      td {
+        border-top: 0;
+      }
+
+      td::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>NM2DB Web Search Compare</h1>
+
+    <div class="controls">
+      <div>
+        <label for="searches">Searches</label>
+        <textarea id="searches" spellcheck="false">Book keyword	book	book
+Perl keyword	perl	perl
+Database keyword	database	database</textarea>
+      </div>
+      <div>
+        <label for="limit">Koha count</label>
+        <input id="limit" type="number" min="1" max="500" value="200">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="run" type="button">Compare</button>
+      <button id="load-file" class="secondary" type="button">Load file</button>
+      <input id="file" type="file" accept=".txt,.tsv,.csv,text/plain,text/tab-separated-values" hidden>
+    </div>
+
+    <div id="status" class="status"></div>
+    <div id="results"></div>
+  </main>
+
+  <script>
+    const pluginSearchUrl = "/api/v1/contrib/nm2db_keyword_search/search";
+    const kohaSearchPath = "/cgi-bin/koha/opac-search.pl";
+    const searchesInput = document.getElementById("searches");
+    const limitInput = document.getElementById("limit");
+    const runButton = document.getElementById("run");
+    const loadFileButton = document.getElementById("load-file");
+    const fileInput = document.getElementById("file");
+    const statusNode = document.getElementById("status");
+    const resultsNode = document.getElementById("results");
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function parseSearches(value) {
+      return value
+        .split(/\r?\n/)
+        .map((line, index) => ({ line: line.trim(), number: index + 1 }))
+        .filter((entry) => entry.line && !entry.line.startsWith("#"))
+        .map((entry) => {
+          const columns = entry.line.split("\t").map((column) => column.trim());
+          if (columns.length === 1) {
+            return {
+              label: columns[0],
+              pluginQuery: columns[0],
+              kohaQuery: columns[0],
+              line: entry.number
+            };
+          }
+          if (columns.length === 2) {
+            return {
+              label: columns[0],
+              pluginQuery: columns[0],
+              kohaQuery: columns[1],
+              line: entry.number
+            };
+          }
+          return {
+            label: columns[0],
+            pluginQuery: columns[1],
+            kohaQuery: columns[2],
+            line: entry.number
+          };
+        });
+    }
+
+    function sortedUnique(items) {
+      return [...new Map(items.filter((item) => item.id).map((item) => [String(item.id), item])).values()]
+        .sort((left, right) => Number(left.id) - Number(right.id));
+    }
+
+    function titleFromHtml(html) {
+      if (!html) {
+        return "";
+      }
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const title = doc.querySelector("a.title") || doc.querySelector("a[href*='opac-detail.pl?biblionumber=']");
+      return title ? title.textContent.replace(/\s+/g, " ").trim() : "";
+    }
+
+    async function fetchPluginResults(query) {
+      const url = new URL(pluginSearchUrl, window.location.origin);
+      url.searchParams.set("keyword", query);
+      url.searchParams.set("type", "opac");
+      url.searchParams.set("include", "results");
+
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) {
+        throw new Error(`plugin HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const rows = Array.isArray(payload.results) ? payload.results : [];
+      return sortedUnique(rows.map((row) => ({
+        id: row.biblionumber,
+        title: titleFromHtml(row.rendered_html),
+        source: "plugin"
+      })));
+    }
+
+    function kohaUrlFor(query, limit) {
+      const url = new URL(kohaSearchPath, window.location.origin);
+      url.searchParams.set("count", String(limit));
+
+      if (/^(idx|q|limit|sort_by|op|page|count)=/.test(query)) {
+        const params = new URLSearchParams(query);
+        for (const [key, value] of params.entries()) {
+          url.searchParams.set(key, value);
+        }
+        if (!url.searchParams.has("count")) {
+          url.searchParams.set("count", String(limit));
+        }
+        return url;
+      }
+
+      if (query.startsWith("ccl:")) {
+        url.searchParams.set("q", query.slice(4));
+        return url;
+      }
+
+      if (/^[A-Za-z][\w-]*(?:,[\w-]+)*[=:]/.test(query)) {
+        url.searchParams.set("q", query);
+        return url;
+      }
+
+      url.searchParams.set("idx", "kw");
+      url.searchParams.set("q", query);
+      return url;
+    }
+
+    async function fetchKohaResults(query, limit) {
+      const url = kohaUrlFor(query, limit);
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "Accept": "text/html" }
+      });
+      if (!response.ok) {
+        throw new Error(`Koha HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const links = [...doc.querySelectorAll("a.title[href*='opac-detail.pl?biblionumber=']")];
+      return {
+        url,
+        results: sortedUnique(links.map((link) => {
+          const href = new URL(link.getAttribute("href"), window.location.origin);
+          return {
+            id: href.searchParams.get("biblionumber"),
+            title: link.textContent.replace(/\s+/g, " ").trim(),
+            source: "koha"
+          };
+        }))
+      };
+    }
+
+    function diff(left, right) {
+      const rightIds = new Set(right.map((item) => String(item.id)));
+      return left.filter((item) => !rightIds.has(String(item.id)));
+    }
+
+    function renderList(items) {
+      if (!items.length) {
+        return '<span class="muted">none</span>';
+      }
+      return `
+        <ul class="result-list">
+          ${items.map((item) => `
+            <li>
+              <a href="/cgi-bin/koha/opac-detail.pl?biblionumber=${encodeURIComponent(item.id)}">${escapeHtml(item.id)}</a>
+              ${item.title ? ` ${escapeHtml(item.title)}` : ""}
+            </li>
+          `).join("")}
+        </ul>
+      `;
+    }
+
+    function renderRows(rows) {
+      resultsNode.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th class="col-status">Status</th>
+              <th class="col-label">Search</th>
+              <th class="col-count">Plugin</th>
+              <th class="col-count">Koha</th>
+              <th>Plugin only</th>
+              <th>Koha only</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td data-label="Status">${row.error ? '<span class="warn">error</span>' : row.matches ? '<span class="match">match</span>' : '<span class="diff">diff</span>'}</td>
+                <td data-label="Search">
+                  <strong>${escapeHtml(row.label)}</strong><br>
+                  <span class="muted">plugin: ${escapeHtml(row.pluginQuery)}</span><br>
+                  <a href="${escapeHtml(row.kohaUrl)}">Koha web search</a>
+                  ${row.error ? `<br><span class="diff">${escapeHtml(row.error)}</span>` : ""}
+                </td>
+                <td data-label="Plugin">${row.pluginCount}</td>
+                <td data-label="Koha">${row.kohaCount}</td>
+                <td data-label="Plugin only">${renderList(row.pluginOnly)}</td>
+                <td data-label="Koha only">${renderList(row.kohaOnly)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function compare() {
+      const cases = parseSearches(searchesInput.value);
+      const limit = Number(limitInput.value || 200);
+      const rows = [];
+
+      statusNode.className = "status";
+      if (!cases.length) {
+        statusNode.textContent = "No searches to run.";
+        resultsNode.innerHTML = "";
+        return;
+      }
+
+      runButton.disabled = true;
+      resultsNode.innerHTML = "";
+
+      for (let index = 0; index < cases.length; index++) {
+        const item = cases[index];
+        statusNode.textContent = `Running ${index + 1} of ${cases.length}: ${item.label}`;
+
+        try {
+          const [pluginResults, kohaResponse] = await Promise.all([
+            fetchPluginResults(item.pluginQuery),
+            fetchKohaResults(item.kohaQuery, limit)
+          ]);
+          const pluginOnly = diff(pluginResults, kohaResponse.results);
+          const kohaOnly = diff(kohaResponse.results, pluginResults);
+
+          rows.push({
+            ...item,
+            pluginCount: pluginResults.length,
+            kohaCount: kohaResponse.results.length,
+            pluginOnly,
+            kohaOnly,
+            matches: !pluginOnly.length && !kohaOnly.length,
+            kohaUrl: kohaResponse.url.pathname + kohaResponse.url.search
+          });
+        } catch (error) {
+          rows.push({
+            ...item,
+            pluginCount: 0,
+            kohaCount: 0,
+            pluginOnly: [],
+            kohaOnly: [],
+            matches: false,
+            error: error.message,
+            kohaUrl: kohaUrlFor(item.kohaQuery, limit).pathname + kohaUrlFor(item.kohaQuery, limit).search
+          });
+        }
+
+        renderRows(rows);
+      }
+
+      const diffs = rows.filter((row) => !row.matches).length;
+      statusNode.textContent = `${rows.length} searches complete; ${diffs} with differences.`;
+      statusNode.className = diffs ? "status error" : "status";
+      runButton.disabled = false;
+    }
+
+    runButton.addEventListener("click", compare);
+    loadFileButton.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        return;
+      }
+      searchesInput.value = await file.text();
+      fileInput.value = "";
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const keyword = params.get("keyword");
+    if (keyword) {
+      searchesInput.value = keyword;
+      compare();
+    }
+  </script>
+</body>
+</html>

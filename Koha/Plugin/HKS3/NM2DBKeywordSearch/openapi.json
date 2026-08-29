@@ -33,6 +33,29 @@
           "in": "query",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "refine",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "available_only",
+          "in": "query",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "include",
+          "in": "query",
+          "required": false,
+          "type": "string",
+          "enum": [
+            "all",
+            "results",
+            "facets"
+          ]
         }
       ],
       "responses": {
@@ -40,6 +63,71 @@
           "description": "HTML search page",
           "schema": {
             "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "/suggestions": {
+    "get": {
+      "x-mojo-to": "HKS3::NM2DBKeywordSearch::Controller#suggestions",
+      "operationId": "nm2dbKeywordSearchSuggestions",
+      "tags": [
+        "plugin"
+      ],
+      "produces": [
+        "application/json"
+      ],
+      "parameters": [
+        {
+          "name": "term",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "limit",
+          "in": "query",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Typeahead suggestions",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "term": {
+                "type": "string"
+              },
+              "suggestions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    },
+                    "biblionumber": {
+                      "type": "integer"
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -79,6 +167,29 @@
           "in": "query",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "refine",
+          "in": "query",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "available_only",
+          "in": "query",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "include",
+          "in": "query",
+          "required": false,
+          "type": "string",
+          "enum": [
+            "all",
+            "results",
+            "facets"
+          ]
         }
       ],
       "responses": {
@@ -97,6 +208,15 @@
                 "type": "string"
               },
               "facet_value": {
+                "type": "string"
+              },
+              "refine": {
+                "type": "string"
+              },
+              "available_only": {
+                "type": "boolean"
+              },
+              "include": {
                 "type": "string"
               },
               "results": {
@@ -129,6 +249,9 @@
                   "type": "object",
                   "properties": {
                     "name": {
+                      "type": "string"
+                    },
+                    "label": {
                       "type": "string"
                     },
                     "values": {
