@@ -74,6 +74,8 @@ OPAC and staff catalogue search forms that submit to `opac-search.pl` or
 `catalogue/search.pl`. A unique suggestion carries its `biblionumber`, so an
 explicit browser typeahead replacement can jump directly to the record detail
 page. Submitting the form still performs a normal keyword search.
+Suggestions load while typing and when focusing a prefilled search field.
+Option labels include the title so Firefox can filter and display them.
 
 After adding or changing hook methods in a mounted plugin checkout, refresh
 Koha's plugin method registry:
@@ -83,6 +85,13 @@ perl -MKoha::Plugins -E 'Koha::Plugins->new->InstallPlugins({ include => [ q{Koh
 ```
 
 ## Tests
+
+Run the catalogue typeahead JavaScript regression tests with Node.js 18 or newer
+(no Koha instance or database required):
+
+```sh
+node t/catalogue_typeahead.test.cjs
+```
 
 Run the integration comparison test inside a KTD instance with the plugin mounted:
 

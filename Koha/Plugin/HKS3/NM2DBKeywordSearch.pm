@@ -410,10 +410,13 @@ sub _catalogue_typeahead_js {
         const datalist = ensureDatalist(input);
         rememberSuggestions(input, suggestions);
         datalist.innerHTML = suggestions.map((entry) => {
+            const value = entry.value || "";
             const field = entry.field || "";
             const count = entry.count ? ` (${entry.count})` : "";
             const direct = entry.biblionumber ? ` #${entry.biblionumber}` : "";
-            return `<option value="${escapeAttribute(entry.value || "")}" label="${escapeAttribute(field + direct + count)}"></option>`;
+            // Firefox filters datalist options by label, not just by value.
+            const label = `${value} - ${field}${direct}${count}`;
+            return `<option value="${escapeAttribute(value)}" label="${escapeAttribute(label)}"></option>`;
         }).join("");
     }
 
@@ -470,6 +473,7 @@ sub _catalogue_typeahead_js {
         }
         input.dataset.nm2dbCatalogueTypeahead = "1";
         ensureDatalist(input);
+        input.addEventListener("focus", () => queueSuggestions(input));
         input.addEventListener("input", (event) => {
             stateFor(input).explicitSelection = event.inputType === "insertReplacementText";
             queueSuggestions(input);
