@@ -18,15 +18,15 @@ use Koha::Token;
 use Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex;
 use Try::Tiny;
 
-our $VERSION = '0.05';
+our $VERSION = '0.1';
 
 our $metadata = {
     name            => 'NM2DB Keyword Search',
     author          => 'Mark Hofstetter',
-    description     => 'Adds OPAC and intranet keyword search pages for nm2db_v_record',
+    description     => 'DBSearch catalogue and authority search with a cache-maintenance tool',
     namespace       => 'nm2db_keyword_search',
     date_authored   => '2026-03-24',
-    date_updated    => '2026-03-24',
+    date_updated    => '2026-10-18',
     minimum_version => '23.11',
     maximum_version => undef,
     version         => $VERSION,

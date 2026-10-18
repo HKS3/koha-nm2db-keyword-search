@@ -9,6 +9,30 @@ it uses and relies on
 
 https://github.com/HKS3/koha-normalize-marc2db
 
+## Version 0.1 (2026-10-18)
+
+Fixes [issue #1](https://github.com/HKS3/koha-nm2db-keyword-search/issues/1)
+in [2424331](https://github.com/HKS3/koha-nm2db-keyword-search/commit/24243313e58c7173f514d16e634529c00f309ff0):
+plain searches for short words and MariaDB stopwords, including `go`, `who`
+and `for`, now use an indexed word-prefix search instead of being discarded.
+The index has no minimum word length or stopword exclusions. Matching is
+reused within a request, only the requested result page is rendered, and
+the total hit count is not artificially capped. Boolean/fulltext queries
+retain MariaDB's existing restrictions; identical results to Zebra are not
+guaranteed.
+
+This version also adds MARC21 authority search with visible heading metadata
+and correct first-page offsets, a protected background cache-refresh tool,
+and DBSearch-only catalogue typeahead hooks. The plugin tool is maintenance
+only; normal staff/OPAC searches and the standalone search pages remain.
+
+When upgrading from 0.05, refresh Koha's plugin method registry, reload Plack
+and restart the `long_tasks` worker, then build the new word index as described
+under **Performance cache**, or use **Refresh search caches** in the plugin
+tool. Deploying the new files alone does not build the index on an existing
+installation. The full cache refresh also resets facet mappings as documented
+below; original MARC, items and authorities are preserved.
+
 ## Search behavior
 
 Plain keyword searches use a plugin-owned word index over all normalized
