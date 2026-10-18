@@ -2,7 +2,7 @@
 
 Koha plugin that adds:
 
-- an intranet search page at `plugins/run.pl?class=Koha::Plugin::HKS3::NM2DBKeywordSearch&method=tool`
+- an intranet cache-maintenance tool at `plugins/run.pl?class=Koha::Plugin::HKS3::NM2DBKeywordSearch&method=tool` (no search form)
 - an OPAC search page at `/api/v1/contrib/nm2db_keyword_search/page`
 
 it uses and relies on 
@@ -11,18 +11,23 @@ https://github.com/HKS3/koha-normalize-marc2db
 
 ## Search behavior
 
-Plain keyword searches are expanded to MySQL boolean prefix terms, for example
-`book` becomes `+book*`. For multi-word searches, each prefix must match
-somewhere in the record. The result query searches all normalized bibliographic
-subfields and still uses Koha search-field weights where a MARC mapping exists.
-This is intended to match Koha OPAC's simple keyword path, which uses
-right-truncated keyword searches.
+Plain keyword searches use a plugin-owned word index over all normalized
+bibliographic subfields. Words are Unicode alphanumeric/underscore sequences,
+lowercased and indexed with no minimum length or stopword exclusion. `go` finds
+the standalone word `Go` and word prefixes such as `Goethe`, but not `Chicago`.
+For multi-word queries, every word prefix must match somewhere in the record,
+including short terms and stopwords; words need not be in the same subfield.
+Koha's MARC search-field weights contribute to result ordering.
 
-For plain multi-word searches the plugin drops terms that InnoDB fulltext would
-ignore anyway, using the database `innodb_ft_min_token_size` and default
-stopword list. This keeps title searches such as
-`Programme of the jornadas de taxonomía vegetal III` from spending time on
-unindexable words like `of`, `the`, and `de`.
+Matching IDs and weights are calculated once per plugin object/request and
+reused for the hit count, result pages and facets. Only the requested page's
+MARCXML and display subfields are loaded. There is no artificial hit-count cap;
+the existing result-page limit (maximum 1,000 rows) does not cap the total.
+
+Explicit Boolean/fulltext queries (quotes, `+`, `-`, `*`, etc.) retain the
+MariaDB fulltext path and its token-size/stopword restrictions. If an existing
+installation has not built the word index yet, the earlier fulltext/SQL
+fallback remains active; build the word index to enable the fast plain path.
 
 Before falling back to fulltext, long submitted title-like terms are checked
 against the typeahead title cache. An exact cached `245$a` title match returns
@@ -39,6 +44,23 @@ keyword queries. It also builds small plugin-owned lookup/cache tables:
 - `nm2db_keyword_search_facets`
 - `nm2db_keyword_search_facet_values`
 - `nm2db_keyword_search_suggestions`
+- `nm2db_keyword_search_words`
+
+For an existing installation, build just the derived word index, without
+changing MARC, items, authorities, mappings, MariaDB settings or its fulltext
+index (inside `koha-shell kohadev`):
+
+```sh
+perl /kohadevbox/plugins/koha-nm2db-keyword-search/script/refresh_word_index.pl --confirm
+```
+
+The rebuild replaces only the plugin-owned word cache in a transaction. Its
+readiness flag is set after a successful build. Re-run after a bulk reload of
+normalized MARC or changes to search-field weights. The `after_biblio_action`
+hook updates the index on ordinary catalogue creation/modification, reading
+MARC directly so normalization-hook order does not matter. Deleted biblios
+remove their word entries through a foreign key. Refresh Koha's plugin method
+registry after deploying the new hook, then reload Plack.
 
 During install/cache refresh the plugin also rewrites MARC21 bibliographic
 `search_marc_to_field.facet` flags to the Zebra facet set from
@@ -54,6 +76,23 @@ After reloading the normalized MARC tables, refresh these caches:
 /kohadevbox/plugins/koha-nm2db-keyword-search/script/refresh_keyword_search_cache.pl
 ```
 
+Alternatively, open **NM2DB Keyword Search → Run tool** in the staff plugin
+list and click **Refresh search caches**. This POST/CSRF-protected action
+requires Koha's `plugins:tool` permission and queues the same install/cache
+refresh routine as the script above on the `long_tasks` queue. It redirects
+to Koha's background-job details, including completion time or error messages.
+The `long_tasks` worker must be running. Concurrent refresh jobs are rejected
+using a database advisory lock; do not run the command-line refresh concurrently.
+Once started, the full rebuild cannot be interrupted by cancelling its job.
+Existing cache refresh behavior is unchanged: derived caches are rebuilt and
+bibliographic facet mappings are reset as described above; original MARC,
+items and authority records are not changed. Some lookup tables may be
+temporarily incomplete during the refresh, so schedule it outside busy periods.
+
+After deploying this action, refresh the plugin method registry (see below),
+reload Plack, and restart the `long_tasks` worker so it loads the new job and
+template hooks.
+
 The `/api/v1/contrib/nm2db_keyword_search/search` endpoint also accepts
 `include=results`, `include=facets`, or `include=all`. Result sets can be
 narrowed with `facet_name`/`facet_value`, `refine` for an additional
@@ -62,20 +101,35 @@ one item that is not on loan, lost, withdrawn, or not-for-loan. The static
 search pages use `include` to request results and facets concurrently instead
 of doing both in one server request.
 
-The intranet plugin page renders results with Koha's DataTables/Responsive
-assets. Its search input performs live AJAX searches and uses
+The standalone search pages perform live AJAX searches and use
 `/api/v1/contrib/nm2db_keyword_search/suggestions` for typeahead suggestions.
+The staff plugin tool is reserved for cache maintenance; it does not contain
+a keyword search form or result list. Normal staff and OPAC catalogue searches
+and the standalone search pages remain available.
 The typeahead matches contained text, with prefix matches ordered first. The
 suggestion cache is built from a defined MARC field list, currently `245$a`.
 
-The plugin also exposes `opac_js` and `intranet_js` hooks. When Koha's plugin
-method registry is current, those hooks add the same title typeahead to normal
+The plugin also exposes `opac_js` and `intranet_js` hooks. When `SearchEngine`
+is `DBSearch` and Koha's plugin method registry is current, those hooks add
+the same title typeahead to normal
 OPAC and staff catalogue search forms that submit to `opac-search.pl` or
 `catalogue/search.pl`. A unique suggestion carries its `biblionumber`, so an
 explicit browser typeahead replacement can jump directly to the record detail
 page. Submitting the form still performs a normal keyword search.
 Suggestions load while typing and when focusing a prefilled search field.
 Option labels include the title so Firefox can filter and display them.
+With Zebra or Elasticsearch selected, these catalogue hooks emit no JavaScript.
+The standalone nm2db search page and its suggestions endpoint remain available.
+
+## Authority search
+
+When `SearchEngine` is `DBSearch`, authority searches also use normalized MARC
+authority records instead of delegating to Zebra. The MARC21 implementation
+supports the standard authority search selections: any field, main and primary
+heading, matching headings, see-from headings, MARC tag/subfield searches,
+thesaurus, heading-use flags, authority type, sorting, and pagination. Results
+retain Koha's normal authority result metadata and summaries. Authority usage
+counts are based on normalized bibliographic `$9` links.
 
 After adding or changing hook methods in a mounted plugin checkout, refresh
 Koha's plugin method registry:
@@ -93,15 +147,36 @@ Run the catalogue typeahead JavaScript regression tests with Node.js 18 or newer
 node t/catalogue_typeahead.test.cjs
 ```
 
+Run the hook-selection regression test in KTD (preferences are mocked and the
+plugin constructor is not called, so no catalogue data is changed):
+
+```sh
+prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/catalogue_typeahead_hooks.t
+prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/refresh_cache_tool.t
+```
+
+The refresh-tool test mocks cache writes and checks the maintenance-only UI,
+job registration, POST/CSRF guards, redirects, successful/failed refresh reports
+and concurrent-job rejection.
+
 Run the integration comparison test inside a KTD instance with the plugin mounted:
 
 ```sh
 prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/nm2db_vs_koha_search.t
+prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/dbsearch_authorities.t
+prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/word_index.t
 ```
 
 The test compares this plugin's normalized-MARC keyword search with Koha's normal
 catalog keyword search and fails with the differing biblionumbers if the result
 sets diverge.
+
+The word-index test checks standalone short words, stopwords, word boundaries,
+multi-term matching, update invalidation and request-local hit-set reuse.
+Its update fixtures only replace derived cache rows inside a rolled-back
+transaction; catalogue records are not changed. The authority test includes
+the one-based first-page offset used by both the staff and OPAC authority UI,
+including the single-hit case and paging past the last hit.
 
 ## Search comparison script
 

@@ -1,68 +1,43 @@
+[% SET footerjs = 1 %]
 [% INCLUDE 'doc-head-open.inc' %]
-NM2DB keyword search
+<title>NM2DB Keyword Search</title>
 [% INCLUDE 'doc-head-close.inc' %]
 </head>
 <body id="tools_plugins" class="tools">
-[% INCLUDE 'header.inc' %]
-[% INCLUDE 'prefs-admin-search.inc' %]
-[% INCLUDE 'masthead.inc' %]
+[% WRAPPER 'header.inc' %]
+    [% INCLUDE 'prefs-admin-search.inc' %]
+[% END %]
 
 <div id="breadcrumbs">
     <a href="/cgi-bin/koha/mainpage.pl">Home</a>
     &rsaquo; <a href="/cgi-bin/koha/plugins/plugins-home.pl">Plugins</a>
-    &rsaquo; NM2DB keyword search
+    &rsaquo; NM2DB Keyword Search
 </div>
 
 <div class="main container-fluid">
     <div class="row">
-        <div class="col-sm-10 col-sm-push-2">
+        <div class="col-sm-12">
             <main>
-                <h1>NM2DB keyword search</h1>
-
-                <form method="get" class="form-inline">
-                    <input type="hidden" name="class" value="[% CLASS | html %]">
-                    <input type="hidden" name="method" value="tool">
-                    <label for="keyword">Keyword</label>
-                    <input id="keyword" name="keyword" type="text" value="[% keyword | html %]" size="40">
-                    <button class="btn btn-primary" type="submit">Search</button>
-                    <a class="btn btn-default" href="[% opac_search_url | html %]">Open API</a>
-                    <a class="btn btn-default" href="[% '/api/v1/contrib/nm2db_keyword_search/static/ui/search.html' | html %]">Open HTML page</a>
-                </form>
-
-                [% IF keyword && !results.size %]
-                    <p>No matches found.</p>
-                [% END %]
-
-                [% IF results.size %]
-                    <p>Showing [% results.size %] matches.</p>
-                    <table class="table table-bordered table-striped">
-                        <thead>
-                            <tr>
-                                <th>Biblionumber</th>
-                                <th>Tag</th>
-                                <th>Value</th>
-                                <th>XML</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            [% FOREACH row IN results %]
-                                <tr>
-                                    <td><a href="/cgi-bin/koha/catalogue/detail.pl?biblionumber=[% row.biblionumber | uri %]">[% row.biblionumber | html %]</a></td>
-                                    <td>[% row.tag | html %]</td>
-                                    <td>[% row.value | html %]</td>
-                                    <td><pre style="max-width:40rem; white-space:pre-wrap;">[% row.xml | html %]</pre></td>
-                                </tr>
-                            [% END %]
-                        </tbody>
-                    </table>
-                [% END %]
+                <h1>NM2DB Keyword Search</h1>
+                <div class="page-section">
+                    <h2>Search cache maintenance</h2>
+                    [% IF refresh_error %]
+                        <div class="dialog alert">Could not start the cache refresh. Please check the Koha logs.</div>
+                    [% END %]
+                    <form method="post" action="/cgi-bin/koha/plugins/run.pl">
+                        [% INCLUDE 'csrf-token.inc' %]
+                        <input type="hidden" name="class" value="[% CLASS | html %]">
+                        <input type="hidden" name="method" value="tool">
+                        <input type="hidden" name="op" value="cud-refresh-cache">
+                        <p>Rebuild keyword weights, facets, suggestions and the word index from normalized MARC. This also resets bibliographic facet mappings to Koha's Zebra-style facet configuration; catalogue records are not changed.</p>
+                        <button type="submit" class="btn btn-default">Refresh search caches</button>
+                        <p>The refresh runs as a Koha background job and may take several minutes. Follow its status on the job details page.</p>
+                    </form>
+                </div>
             </main>
-        </div>
-        <div class="col-sm-2 col-sm-pull-10">
-            [% INCLUDE 'tools-menu.inc' %]
         </div>
     </div>
 </div>
 
+[% MACRO jsinclude BLOCK %][% END %]
 [% INCLUDE 'intranet-bottom.inc' %]
-[% BLOCK jsinclude %][% END %]

@@ -14,6 +14,9 @@ use C4::XSLT;
 use Cwd qw(abs_path);
 use Mojo::JSON qw(decode_json encode_json);
 use Koha::Biblios;
+use Koha::Token;
+use Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex;
+use Try::Tiny;
 
 our $VERSION = '0.05';
 
@@ -95,6 +98,7 @@ sub install {
     $self->_create_keyword_lookup_tables($dbh);
     $self->configure_zebra_like_facet_settings($dbh);
     $self->_refresh_keyword_lookup_tables($dbh);
+    Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->refresh;
 
     return 1;
 }
@@ -104,6 +108,8 @@ sub uninstall {
 
     my $dbh = C4::Context->dbh;
 
+    $dbh->do(q{DROP TABLE IF EXISTS nm2db_keyword_search_words});
+    $dbh->do(q{DELETE FROM plugin_data WHERE plugin_class = 'Koha::Plugin::HKS3::NM2DBKeywordSearch' AND plugin_key = 'word_index_ready'});
     $dbh->do(q{DROP TABLE IF EXISTS nm2db_keyword_search_derived_values});
     $dbh->do(q{DROP TABLE IF EXISTS nm2db_keyword_search_facet_values});
     $dbh->do(q{DROP TABLE IF EXISTS nm2db_keyword_search_suggestions});
@@ -139,13 +145,50 @@ sub static_routes {
 
 sub tool {
     my ($self) = @_;
-    my $template = $self->get_template({ file => 'search-page.tt' });
-    $template->param(
-        api_search_url      => $self->opac_search_url,
-        api_suggestions_url => $self->suggestions_url,
-    );
+    my $template = $self->get_template({ file => 'tool.tt' });
+
+    if ( ( $self->{cgi}->param('op') // q{} ) eq 'cud-refresh-cache' ) {
+        die "Cache refresh requires POST\n"
+            unless ( $self->{cgi}->request_method // q{} ) eq 'POST';
+        die "Wrong CSRF token\n" unless Koha::Token->new->check_csrf(
+            {
+                session_id => scalar $self->{cgi}->cookie('CGISESSID'),
+                token      => scalar $self->{cgi}->param('csrf_token'),
+            }
+        );
+
+        my $id;
+        try {
+            require Koha::Plugin::HKS3::NM2DBKeywordSearch::Jobs::RefreshCache;
+            $id = Koha::Plugin::HKS3::NM2DBKeywordSearch::Jobs::RefreshCache->new->enqueue;
+        } catch {
+            warn "Could not enqueue NM2DB search cache refresh: $_";
+            $template->param( refresh_error => 1 );
+        };
+        if ($id) {
+            print $self->{cgi}->redirect(
+                -uri    => "/cgi-bin/koha/admin/background_jobs.pl?op=view&id=$id",
+                -status => '303 See Other',
+            );
+            return;
+        }
+    }
 
     $self->output_html( $template->output() );
+}
+
+sub background_tasks {
+    return {
+        refresh_cache => {
+            class => 'Koha::Plugin::HKS3::NM2DBKeywordSearch::Jobs::RefreshCache',
+            name  => 'Refresh NM2DB keyword search caches',
+        },
+    };
+}
+
+sub template_include_paths {
+    my ($self) = @_;
+    return [ $self->mbf_path('templates') ];
 }
 
 sub get_opac_template {
@@ -290,6 +333,8 @@ sub configure_zebra_like_facet_settings {
 
 sub _catalogue_typeahead_js {
     my ( $self, $config ) = @_;
+
+    return q{} unless ( C4::Context->preference('SearchEngine') // q{} ) eq 'DBSearch';
 
     my $json = encode_json(
         {
@@ -537,11 +582,12 @@ sub search_records {
         return $self->_exact_suggestion_result_rows( $dbh, $exact_hits, $options );
     }
 
-    my $plain_terms = $self->_opac_like_index_terms( $dbh, $keyword );
-    return [] if defined $plain_terms && !@{$plain_terms};
-    my $boolean_search = $self->_opac_like_boolean_query( $keyword, $plain_terms );
-    my $search = $dbh->quote($boolean_search);
-    my $eligible_record_join = $self->_opac_like_eligible_record_join_sql( $dbh, 'r', $plain_terms, $search );
+    my $indexed_hits = $self->_indexed_keyword_hits( $keyword, $facet_name, $facet_value, $options );
+    return $self->_indexed_result_rows( $dbh, $indexed_hits, $keyword, $options )
+        if defined $indexed_hits;
+
+    my $keyword_search = $self->_keyword_search_sql( $dbh, 'r', 's', $keyword );
+    return [] if $keyword_search->{no_results};
     my ( $refine_record_filter, $refine_has_no_terms ) = $self->_record_fulltext_filter_sql( $dbh, 'r', $refine, 'refine' );
     return [] if $refine_has_no_terms;
     my $available_record_filter = $available_only ? $self->_available_items_filter_sql('r') : q{};
@@ -578,10 +624,10 @@ sub search_records {
                 COALESCE(s.code, '') AS code,
                 s.value AS raw_value,
                 COALESCE(sw.weight, 0) AS weight,
-                MATCH(s.value) AGAINST($search IN boolean MODE) AS relevance,
+                $keyword_search->{relevance} AS relevance,
                 CONCAT(f.tag, COALESCE(s.code, ''), ' [w=', COALESCE(sw.weight, 0), ']: ', s.value) AS display_value
             FROM nm2db_records r
-            $eligible_record_join
+            $keyword_search->{eligible_record_join}
             JOIN nm2db_fields f
                 ON f.record_id = r.id
             JOIN nm2db_subfields s
@@ -590,10 +636,11 @@ sub search_records {
                 ON sw.tag = f.tag
                AND sw.code = COALESCE(s.code, '')
             WHERE r.type = 'biblio'
+              $keyword_search->{record_filter}
               $refine_record_filter
               $available_record_filter
               $derived_record_filter
-              AND MATCH(s.value) AGAINST($search IN boolean MODE)
+              $keyword_search->{value_filter}
         ) m
         $metadata_join
         WHERE 1 = 1
@@ -648,11 +695,11 @@ sub count_records {
         return scalar @{$exact_hits};
     }
 
-    my $plain_terms = $self->_opac_like_index_terms( $dbh, $keyword );
-    return 0 if defined $plain_terms && !@{$plain_terms};
-    my $boolean_search = $self->_opac_like_boolean_query( $keyword, $plain_terms );
-    my $search = $dbh->quote($boolean_search);
-    my $eligible_record_join = $self->_opac_like_eligible_record_join_sql( $dbh, 'r', $plain_terms, $search );
+    my $indexed_hits = $self->_indexed_keyword_hits( $keyword, $facet_name, $facet_value, $options );
+    return scalar @{$indexed_hits} if defined $indexed_hits;
+
+    my $keyword_search = $self->_keyword_search_sql( $dbh, 'r', 's', $keyword );
+    return 0 if $keyword_search->{no_results};
     my ( $refine_record_filter, $refine_has_no_terms ) = $self->_record_fulltext_filter_sql( $dbh, 'r', $refine, 'refine_count' );
     return 0 if $refine_has_no_terms;
     my $available_record_filter = $available_only ? $self->_available_items_filter_sql('r') : q{};
@@ -663,16 +710,17 @@ sub count_records {
     my $sql = qq{
         SELECT COUNT(DISTINCT r.biblionumber)
         FROM nm2db_records r
-        $eligible_record_join
+        $keyword_search->{eligible_record_join}
         JOIN nm2db_fields f
             ON f.record_id = r.id
         JOIN nm2db_subfields s
             ON s.field_id = f.id
         WHERE r.type = 'biblio'
+          $keyword_search->{record_filter}
           $refine_record_filter
           $available_record_filter
           $derived_record_filter
-          AND MATCH(s.value) AGAINST($search IN boolean MODE)
+          $keyword_search->{value_filter}
     };
 
     if ( defined $facet_name_sql && defined $facet_value_sql ) {
@@ -716,11 +764,11 @@ sub search_facets {
         return $self->_facets_for_exact_hits( $dbh, $exact_hits );
     }
 
-    my $plain_terms = $self->_opac_like_index_terms( $dbh, $keyword );
-    return [] if defined $plain_terms && !@{$plain_terms};
-    my $boolean_search = $self->_opac_like_boolean_query( $keyword, $plain_terms );
-    my $search = $dbh->quote($boolean_search);
-    my $eligible_record_join = $self->_opac_like_eligible_record_join_sql( $dbh, 'r', $plain_terms, $search );
+    my $indexed_hits = $self->_indexed_keyword_hits( $keyword, $facet_name, $facet_value, $options );
+    return $self->_facets_for_exact_hits( $dbh, $indexed_hits ) if defined $indexed_hits;
+
+    my $keyword_search = $self->_keyword_search_sql( $dbh, 'r', 's', $keyword );
+    return [] if $keyword_search->{no_results};
     my ( $refine_record_filter, $refine_has_no_terms ) = $self->_record_fulltext_filter_sql( $dbh, 'r', $refine, 'refine' );
     return [] if $refine_has_no_terms;
     my $available_record_filter = $available_only ? $self->_available_items_filter_sql('r') : q{};
@@ -739,16 +787,17 @@ sub search_facets {
         FROM (
             SELECT DISTINCT r.id, r.biblionumber
             FROM nm2db_records r
-            $eligible_record_join
+            $keyword_search->{eligible_record_join}
             JOIN nm2db_fields f
                 ON f.record_id = r.id
             JOIN nm2db_subfields s
                 ON s.field_id = f.id
             WHERE r.type = 'biblio'
+              $keyword_search->{record_filter}
               $refine_record_filter
               $available_record_filter
               $derived_record_filter
-              AND MATCH(s.value) AGAINST($search IN boolean MODE)
+              $keyword_search->{value_filter}
         ) hit
         JOIN nm2db_keyword_search_facet_values fv
             ON fv.record_id = hit.id
@@ -1177,36 +1226,49 @@ sub _record_fulltext_filter_sql {
 
     return ( q{}, 0 ) unless defined $keyword && $keyword =~ /\S/;
 
-    my $plain_terms = $self->_opac_like_index_terms( $dbh, $keyword );
-    return ( q{}, 1 ) if defined $plain_terms && !@{$plain_terms};
+    my $terms = $self->_opac_like_plain_terms($keyword);
+    if ( $terms && Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->ready ) {
+        my @filters;
+        for my $i ( 0 .. $#{$terms} ) {
+            my $word_alias = $alias . '_word_' . $i;
+            my $pattern = $dbh->quote( $self->_escaped_like_pattern( $terms->[$i], 'prefix' ) );
+            push @filters, qq{
+                AND EXISTS (
+                    SELECT 1 FROM nm2db_keyword_search_words $word_alias
+                    WHERE $word_alias.biblionumber = $record_alias.biblionumber
+                      AND $word_alias.term LIKE $pattern ESCAPE '='
+                )
+            };
+        }
+        return ( join( q{}, @filters ), 0 );
+    }
 
-    my $search = $dbh->quote( $self->_opac_like_boolean_query( $keyword, $plain_terms ) );
     my $record_table_alias = $alias . '_r';
     my $field_table_alias  = $alias . '_f';
     my $subfield_alias     = $alias . '_s';
-    my @having;
-    if ( $plain_terms && @{$plain_terms} > 1 ) {
-        for my $term ( @{$plain_terms} ) {
-            my $term_search = $dbh->quote( '+' . $term . '*' );
-            push @having, qq{MAX(MATCH($subfield_alias.value) AGAINST($term_search IN boolean MODE) > 0) = 1};
-        }
-    }
-    my $having_sql = @having ? 'HAVING ' . join( ' AND ', @having ) : q{};
+    my $keyword_search = $self->_keyword_search_sql(
+        $dbh,
+        $record_table_alias,
+        $subfield_alias,
+        $keyword,
+        $alias . '_keyword'
+    );
+    return ( q{}, 1 ) if $keyword_search->{no_results};
 
     return (
         qq{
               AND EXISTS (
                   SELECT 1
                   FROM nm2db_records $record_table_alias
+                  $keyword_search->{eligible_record_join}
                   JOIN nm2db_fields $field_table_alias
                       ON $field_table_alias.record_id = $record_table_alias.id
                   JOIN nm2db_subfields $subfield_alias
                       ON $subfield_alias.field_id = $field_table_alias.id
                   WHERE $record_table_alias.type = 'biblio'
                     AND $record_table_alias.id = $record_alias.id
-                    AND MATCH($subfield_alias.value) AGAINST($search IN boolean MODE)
-                  GROUP BY $record_table_alias.id
-                  $having_sql
+                    $keyword_search->{record_filter}
+                    $keyword_search->{value_filter}
               )
         },
         0
@@ -1375,33 +1437,31 @@ sub _filter_hits_by_refine {
     return $hits unless defined $refine && $refine =~ /\S/;
     return [] unless @{$hits};
 
-    my $plain_terms = $self->_opac_like_index_terms( $dbh, $refine );
-    return [] if defined $plain_terms && !@{$plain_terms};
+    my $terms = $self->_opac_like_plain_terms($refine);
+    if ( $terms && Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->ready ) {
+        my $refined = Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->search($terms);
+        my %keep = map { $_->{record_id} => 1 } @{$refined};
+        return [ grep { $keep{ $_->{record_id} } } @{$hits} ];
+    }
 
     my @record_ids = map { $_->{record_id} } @{$hits};
     my $placeholders = join q{,}, ('?') x @record_ids;
-    my $search = $dbh->quote( $self->_opac_like_boolean_query( $refine, $plain_terms ) );
-    my @having;
-    if ( $plain_terms && @{$plain_terms} > 1 ) {
-        for my $term ( @{$plain_terms} ) {
-            my $term_search = $dbh->quote( '+' . $term . '*' );
-            push @having, qq{MAX(MATCH(refine_s.value) AGAINST($term_search IN boolean MODE) > 0) = 1};
-        }
-    }
-    my $having_sql = @having ? 'HAVING ' . join( ' AND ', @having ) : q{};
+    my $keyword_search = $self->_keyword_search_sql( $dbh, 'refine_r', 'refine_s', $refine, 'refine_keyword' );
+    return [] if $keyword_search->{no_results};
     my $rows = $dbh->selectall_arrayref(
         qq{
             SELECT refine_r.id AS record_id
             FROM nm2db_records refine_r
+            $keyword_search->{eligible_record_join}
             JOIN nm2db_fields refine_f
                 ON refine_f.record_id = refine_r.id
             JOIN nm2db_subfields refine_s
                 ON refine_s.field_id = refine_f.id
             WHERE refine_r.type = 'biblio'
               AND refine_r.id IN ($placeholders)
-              AND MATCH(refine_s.value) AGAINST($search IN boolean MODE)
+              $keyword_search->{record_filter}
+              $keyword_search->{value_filter}
             GROUP BY refine_r.id
-            $having_sql
         },
         { Slice => {} },
         @record_ids
@@ -1433,6 +1493,108 @@ sub _filter_hits_by_availability {
     my %keep = map { $_->{biblionumber} => 1 } @{$rows};
 
     return [ grep { $keep{ $_->{biblionumber} } } @{$hits} ];
+}
+
+sub _indexed_keyword_hits {
+    my ( $self, $keyword, $facet_name, $facet_value, $options ) = @_;
+
+    my $terms = $self->_opac_like_plain_terms($keyword);
+    return unless $terms && !grep { length($_) > 255 } @{$terms};
+    $self->{_word_index_ready} //= Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->ready;
+    return unless $self->{_word_index_ready};
+
+    $options ||= {};
+    my $refine = $self->_normalized_search_option( $options->{refine} );
+    my $available_only = $options->{available_only} ? 1 : 0;
+    my $derived_limits = $self->_normalized_derived_limits( $options->{derived_limits} );
+    # Request-local only: paging and XML rendering do not change the hit set.
+    my $key = encode_json( [ $keyword, $facet_name, $facet_value, $refine, $available_only, $derived_limits ] );
+    return $self->{_indexed_hits}->{hits}
+        if $self->{_indexed_hits} && $self->{_indexed_hits}->{key} eq $key;
+
+    my $dbh = C4::Context->dbh;
+    my $hits = Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->search($terms);
+    $hits = $self->_filter_hits_by_facet( $dbh, $hits, $facet_name, $facet_value );
+    $hits = $self->_filter_hits_by_derived_limits( $dbh, $hits, $derived_limits );
+    $hits = $self->_filter_hits_by_refine( $dbh, $hits, $refine );
+    $hits = $self->_filter_hits_by_availability( $dbh, $hits, $available_only );
+    $self->{_indexed_hits} = { key => $key, hits => $hits };
+
+    return $hits;
+}
+
+sub _indexed_result_rows {
+    my ( $self, $dbh, $hits, $keyword, $options ) = @_;
+
+    my $offset = int( $options->{offset} // 0 );
+    $offset = 0 if $offset < 0;
+    my $limit = int( $options->{limit} // 200 );
+    $limit = 1 if $limit < 1;
+    $limit = 1000 if $limit > 1000;
+    return [] if $offset > $#{$hits};
+    my @page = @{$hits}[ $offset .. ( $offset + $limit - 1 < $#{$hits} ? $offset + $limit - 1 : $#{$hits} ) ];
+    my @ids = map { $_->{biblionumber} } @page;
+    my $placeholders = join ',', ('?') x @ids;
+    my $rows = $dbh->selectall_arrayref(
+        qq{
+            SELECT r.biblionumber, f.tag, COALESCE(s.code, '') AS code, s.value,
+                COALESCE(sw.weight, 0) AS weight
+            FROM nm2db_records r
+            JOIN nm2db_fields f ON f.record_id = r.id
+            JOIN nm2db_subfields s ON s.field_id = f.id
+            LEFT JOIN nm2db_keyword_search_weights sw
+                ON sw.tag = f.tag AND sw.code = COALESCE(s.code, '')
+            WHERE r.type = 'biblio' AND r.biblionumber IN ($placeholders)
+            ORDER BY f.tag, s.value
+        }, { Slice => {} }, @ids
+    );
+    my $terms = $self->_opac_like_plain_terms($keyword);
+    my %display;
+    for my $row ( @{$rows} ) {
+        my $tokens = Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->tokens( $row->{value} );
+        next unless grep {
+            my $term = lc($_);
+            scalar grep { index( $_, $term ) == 0 } @{$tokens}
+        } @{$terms};
+        push @{ $display{ $row->{biblionumber} } }, $row;
+    }
+    my %metadata;
+    if ( $options->{include_xml} ) {
+        my $xml_rows = $dbh->selectall_arrayref(
+            "SELECT biblionumber, metadata FROM biblio_metadata WHERE format = 'marcxml' AND biblionumber IN ($placeholders)",
+            { Slice => {} }, @ids
+        );
+        %metadata = map { $_->{biblionumber} => $_->{metadata} } @{$xml_rows};
+    }
+    return [ map {
+        my $hit = $_;
+        my %tags;
+        my @values = map {
+            $tags{ $_->{tag} } = 1;
+            $_->{tag} . $_->{code} . ' [w=' . $_->{weight} . ']: ' . $_->{value}
+        } @{ $display{ $hit->{biblionumber} } || [] };
+        +{
+            biblionumber => 0 + $hit->{biblionumber},
+            weight_sum   => $hit->{weight_sum},
+            relevance    => 0,
+            tag          => join( ', ', sort keys %tags ),
+            value        => join( "\n", @values ),
+            xml          => $metadata{ $hit->{biblionumber} } // q{},
+        }
+    } @page ];
+}
+
+sub after_biblio_action {
+    my ( $self, $params ) = @_;
+
+    return unless ( $params->{action} // q{} ) =~ /\A(?:add|create|modify)\z/;
+    return unless Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->ready;
+    my $biblio = $params->{payload}->{biblio};
+    return unless $biblio;
+    # Read MARC directly so this hook does not depend on normalization-hook order.
+    Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->update_record(
+        $biblio->biblionumber, $biblio->metadata->record
+    );
 }
 
 sub _exact_suggestion_result_rows {
@@ -1995,6 +2157,74 @@ sub _opac_like_index_terms {
     } @{$terms};
 
     return \@index_terms;
+}
+
+sub _keyword_search_sql {
+    my ( $self, $dbh, $record_alias, $subfield_alias, $keyword, $alias ) = @_;
+
+    $alias ||= 'keyword';
+    my $index_terms = $self->_opac_like_index_terms( $dbh, $keyword );
+
+    if ( defined $index_terms && !@{$index_terms} ) {
+        my $database_terms = $self->_opac_like_plain_terms($keyword);
+        return { no_results => 1 } unless $database_terms && @{$database_terms};
+
+        return {
+            eligible_record_join => q{},
+            record_filter        => $self->_database_like_record_filter_sql(
+                $dbh, $record_alias, $database_terms, $alias
+            ),
+            value_filter         => $self->_database_like_value_filter_sql(
+                $dbh, $subfield_alias, $database_terms
+            ),
+            relevance            => '0',
+        };
+    }
+
+    my $boolean_search = $self->_opac_like_boolean_query( $keyword, $index_terms );
+    my $search = $dbh->quote($boolean_search);
+
+    return {
+        eligible_record_join => $self->_opac_like_eligible_record_join_sql( $dbh, $record_alias, $index_terms, $search ),
+        record_filter        => q{},
+        value_filter         => qq{AND MATCH($subfield_alias.value) AGAINST($search IN boolean MODE)},
+        relevance            => qq{MATCH($subfield_alias.value) AGAINST($search IN boolean MODE)},
+    };
+}
+
+sub _database_like_record_filter_sql {
+    my ( $self, $dbh, $record_alias, $terms, $alias ) = @_;
+
+    my @filters;
+    for my $i ( 0 .. $#{$terms} ) {
+        my $field_table_alias  = join q{_}, $alias, $i, 'f';
+        my $subfield_alias     = join q{_}, $alias, $i, 's';
+        my $pattern = $dbh->quote( $self->_escaped_like_pattern( $terms->[$i], 'contains' ) );
+
+        push @filters, qq{
+            AND EXISTS (
+                SELECT 1
+                FROM nm2db_fields $field_table_alias
+                JOIN nm2db_subfields $subfield_alias
+                    ON $subfield_alias.field_id = $field_table_alias.id
+                WHERE $field_table_alias.record_id = $record_alias.id
+                  AND $subfield_alias.value LIKE $pattern ESCAPE '='
+            )
+        };
+    }
+
+    return join q{}, @filters;
+}
+
+sub _database_like_value_filter_sql {
+    my ( $self, $dbh, $subfield_alias, $terms ) = @_;
+
+    my @filters = map {
+        my $pattern = $dbh->quote( $self->_escaped_like_pattern( $_, 'contains' ) );
+        qq{$subfield_alias.value LIKE $pattern ESCAPE '='};
+    } @{$terms};
+
+    return 'AND (' . join( ' OR ', @filters ) . ')';
 }
 
 sub _opac_like_eligible_record_join_sql {
