@@ -9,6 +9,51 @@ it uses and relies on
 
 https://github.com/HKS3/koha-normalize-marc2db
 
+## Version 0.2 (2026-10-22)
+
+[Download the 0.2 KPZ](https://github.com/HKS3/koha-nm2db-keyword-search/releases/download/v0.2/Koha.Plugin.HKS3.NM2DBKeywordSearch-0.2.kpz)
+or read the [release notes](https://github.com/HKS3/koha-nm2db-keyword-search/releases/tag/v0.2).
+
+This release consolidates the changes from 0.1 and 0.1.1:
+
+- Indexed word-prefix searches include short words and stopwords such as `go`,
+  `who` and `for`, without an artificial total-hit cap
+  ([issue #1](https://github.com/HKS3/koha-nm2db-keyword-search/issues/1)).
+  Matching is reused within a request; only the requested page is rendered.
+- MARC21 DBSearch authority searches display heading metadata and handle the
+  one-based first-page offset correctly, including single-hit results.
+- The staff plugin tool is maintenance-only, with a POST/CSRF-protected
+  background cache refresh. Catalogue typeahead hooks run only with DBSearch.
+- Install/upgrade uses `utf8mb4_unicode_ci` throughout the normalized nm2db
+  tables and search caches, fixing mixed-collation install failures
+  ([issue #2](https://github.com/HKS3/koha-nm2db-keyword-search/issues/2)).
+  Per-query mixed-collation workarounds are no longer retained.
+
+Compared with 0.1.1, 0.2 changes only the plugin version and documentation;
+search behavior and the schema-upgrade implementation are unchanged. On an
+already upgraded 0.1.1 installation, no further table conversion or cache
+rebuild is needed. Reload the plugin registry, Plack and `long_tasks` after
+deployment as described below.
+
+### NormalizeMARC2DB compatibility
+
+NormalizeMARC2DB itself does not need a code change or a new release for
+Keyword Search 0.2. The current NormalizeMARC2DB 1.0.6 source already creates
+and upgrades its tables with `utf8mb4_unicode_ci`; it remains unchanged.
+Keyword Search owns the conversion of existing shared normalized tables and
+its search caches, so leaving the NormalizeMARC2DB package unchanged does not
+mean leaving legacy database collations unchanged.
+
+Existing installations must provide the normalized tables and an index layout
+compatible with `utf8mb4`. Very old NormalizeMARC2DB schemas with an oversized
+legacy value-index prefix must be upgraded with NormalizeMARC2DB first; this
+is not a promise of compatibility with every historical version. Follow the
+[collation upgrade precautions](#collation-upgrade) when upgrading from before
+0.1.1. When upgrading from before 0.1, also build the word cache under
+[Performance cache](#performance-cache); the CLI scripts require a source
+checkout, while KPZ-only installations can use **Refresh search caches** in
+the plugin tool. The full refresh resets facet mappings as documented there.
+
 ## Version 0.1.1 (2026-10-22)
 
 Fixes [issue #2](https://github.com/HKS3/koha-nm2db-keyword-search/issues/2):
@@ -23,9 +68,10 @@ than retaining mixed-collation compatibility paths.
 
 ### Collation upgrade
 
-Install/upgrade 0.1.1 in a maintenance window, after a database backup and with
-enough free disk space for table rebuilds. Do not run normalization, catalogue
-edits, cache-refresh jobs or searches during the conversion. DDL can lock tables
+Install/upgrade to 0.1.1 or later in a maintenance window, after a database
+backup and with enough free disk space for table rebuilds. Do not run
+normalization, catalogue edits, cache-refresh jobs or searches during the
+conversion. DDL can lock tables
 and is not transactional. A database advisory lock prevents concurrent keyword
 schema upgrades; completed conversions are skipped if an interrupted upgrade
 is retried. Koha only advances the installed plugin version after success.

@@ -19,7 +19,7 @@ use Koha::Plugin::HKS3::NM2DBKeywordSearch::Schema;
 use Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex;
 use Try::Tiny;
 
-our $VERSION = '0.1.1';
+our $VERSION = '0.2';
 
 our $metadata = {
     name            => 'NM2DB Keyword Search',
