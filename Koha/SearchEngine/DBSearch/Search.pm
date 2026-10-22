@@ -259,14 +259,14 @@ sub _authority_term_sql {
 
     my @field_conditions;
     if ( $marclist eq 'mainentry' || $marclist eq 'match-heading' ) {
-        push @field_conditions, 'BINARY authority_f.tag = BINARY at.auth_tag_to_report';
+        push @field_conditions, 'authority_f.tag = at.auth_tag_to_report';
     } elsif ( $marclist eq 'mainmainentry' ) {
-        push @field_conditions, 'BINARY authority_f.tag = BINARY at.auth_tag_to_report';
+        push @field_conditions, 'authority_f.tag = at.auth_tag_to_report';
         push @field_conditions, q{COALESCE(authority_s.code, '') = 'a'};
     } elsif ( $marclist eq 'see-from' ) {
         push @field_conditions, q{authority_f.tag REGEXP '^4[0-9]{2}$'};
     } elsif ( $marclist eq 'match' ) {
-        push @field_conditions, q{(BINARY authority_f.tag = BINARY at.auth_tag_to_report OR authority_f.tag REGEXP '^[45][0-9]{2}$')};
+        push @field_conditions, q{(authority_f.tag = at.auth_tag_to_report OR authority_f.tag REGEXP '^[45][0-9]{2}$')};
     } elsif ( $marclist =~ /\A(\d{3})([0-9A-Za-z])?\z/ ) {
         push @field_conditions, q{authority_f.tag = '} . $1 . q{'};
         push @field_conditions, q{COALESCE(authority_s.code, '') = '} . $2 . q{'} if defined $2;
@@ -385,7 +385,7 @@ sub _authority_heading_sql {
             JOIN nm2db_subfields authority_heading_s
                 ON authority_heading_s.field_id = authority_heading_f.id
             WHERE authority_heading_f.record_id = $record_alias.id
-              AND BINARY authority_heading_f.tag = BINARY at.auth_tag_to_report
+              AND authority_heading_f.tag = at.auth_tag_to_report
         ), '')
     };
 }

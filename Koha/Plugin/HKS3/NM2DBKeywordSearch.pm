@@ -15,10 +15,11 @@ use Cwd qw(abs_path);
 use Mojo::JSON qw(decode_json encode_json);
 use Koha::Biblios;
 use Koha::Token;
+use Koha::Plugin::HKS3::NM2DBKeywordSearch::Schema;
 use Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex;
 use Try::Tiny;
 
-our $VERSION = '0.1';
+our $VERSION = '0.1.1';
 
 our $metadata = {
     name            => 'NM2DB Keyword Search',
@@ -26,7 +27,7 @@ our $metadata = {
     description     => 'DBSearch catalogue and authority search with a cache-maintenance tool',
     namespace       => 'nm2db_keyword_search',
     date_authored   => '2026-03-24',
-    date_updated    => '2026-10-18',
+    date_updated    => '2026-10-22',
     minimum_version => '23.11',
     maximum_version => undef,
     version         => $VERSION,
@@ -51,6 +52,8 @@ sub install {
     my ($self) = @_;
 
     my $dbh = C4::Context->dbh;
+
+    $self->_prepare_schema($dbh);
 
     $self->_ensure_index(
         $dbh,
@@ -95,12 +98,25 @@ sub install {
         q{ALTER TABLE items ADD INDEX nm2db_items_availability_idx (biblionumber, onloan, itemlost, withdrawn, notforloan)}
     );
 
-    $self->_create_keyword_lookup_tables($dbh);
     $self->configure_zebra_like_facet_settings($dbh);
     $self->_refresh_keyword_lookup_tables($dbh);
     Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->refresh;
 
     return 1;
+}
+
+sub upgrade {
+    my ($self) = @_;
+    $self->_prepare_schema( C4::Context->dbh );
+    return 1;
+}
+
+sub _prepare_schema {
+    my ( $self, $dbh ) = @_;
+    die "NM2DB schema conversion requires its own transaction\n" unless $dbh->{AutoCommit};
+    $self->_create_keyword_lookup_tables($dbh);
+    Koha::Plugin::HKS3::NM2DBKeywordSearch::WordIndex->create_table;
+    Koha::Plugin::HKS3::NM2DBKeywordSearch::Schema->upgrade($dbh);
 }
 
 sub uninstall {
@@ -802,7 +818,7 @@ sub search_facets {
         JOIN nm2db_keyword_search_facet_values fv
             ON fv.record_id = hit.id
         LEFT JOIN search_field sf
-            ON sf.name COLLATE utf8mb4_general_ci = fv.name
+            ON sf.name = fv.name
         WHERE 1 = 1
     };
 
@@ -1193,7 +1209,7 @@ sub _facets_for_filtered_records {
         JOIN nm2db_keyword_search_facet_values fv
             ON fv.record_id = hit.id
         LEFT JOIN search_field sf
-            ON sf.name COLLATE utf8mb4_general_ci = fv.name
+            ON sf.name = fv.name
         GROUP BY fv.name, label, fv.value
     };
 
@@ -1672,7 +1688,7 @@ sub _facets_for_exact_hits {
                         COUNT(DISTINCT fv.biblionumber) AS count
                     FROM nm2db_keyword_search_facet_values fv
                     LEFT JOIN search_field sf
-                        ON sf.name COLLATE utf8mb4_general_ci = fv.name
+                        ON sf.name = fv.name
                     WHERE fv.record_id IN ($placeholders)
                     GROUP BY fv.name, label, fv.value
                 ) grouped
@@ -1711,7 +1727,7 @@ sub _create_keyword_lookup_tables {
             code char(1) NOT NULL DEFAULT '',
             weight decimal(5,2) NOT NULL DEFAULT 0,
             PRIMARY KEY (tag, code)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     });
 
     $dbh->do(q{
@@ -1721,7 +1737,7 @@ sub _create_keyword_lookup_tables {
             name varchar(191) NOT NULL,
             PRIMARY KEY (tag, code, name),
             KEY nm2db_keyword_facets_name_idx (name, tag, code)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     });
 
     $dbh->do(q{
@@ -1735,7 +1751,7 @@ sub _create_keyword_lookup_tables {
             KEY nm2db_keyword_fv_record_idx (record_id, name, value(191)),
             KEY nm2db_keyword_fv_name_value_idx (name, value(191), record_id),
             KEY nm2db_keyword_fv_biblio_idx (biblionumber)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     });
 
     $dbh->do(q{
@@ -1749,7 +1765,7 @@ sub _create_keyword_lookup_tables {
             KEY nm2db_keyword_suggest_value_idx (value(191)),
             KEY nm2db_keyword_suggest_field_value_idx (tag, code, value(191)),
             KEY nm2db_keyword_suggest_biblio_idx (biblionumber)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     });
 
     $dbh->do(q{
@@ -1766,7 +1782,7 @@ sub _create_keyword_lookup_tables {
             KEY nm2db_keyword_dv_name_num_idx (name, numeric_value, record_id),
             KEY nm2db_keyword_dv_record_idx (record_id, name, numeric_value),
             KEY nm2db_keyword_dv_biblio_idx (biblionumber)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     });
 }
 

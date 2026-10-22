@@ -9,6 +9,47 @@ it uses and relies on
 
 https://github.com/HKS3/koha-normalize-marc2db
 
+## Version 0.1.1 (2026-10-22)
+
+Fixes [issue #2](https://github.com/HKS3/koha-nm2db-keyword-search/issues/2):
+installation could fail with `Illegal mix of collations` when NormalizeMARC2DB
+used `utf8mb4_unicode_ci` but the search caches used `utf8mb4_general_ci`.
+
+Fresh cache tables now use `utf8mb4_unicode_ci`. Installation and the Koha
+plugin upgrade hook convert all normalized tables and search caches to this
+same collation before any cache joins run. Existing per-query `COLLATE` and
+`BINARY` workarounds have been removed; the application uses one schema rather
+than retaining mixed-collation compatibility paths.
+
+### Collation upgrade
+
+Install/upgrade 0.1.1 in a maintenance window, after a database backup and with
+enough free disk space for table rebuilds. Do not run normalization, catalogue
+edits, cache-refresh jobs or searches during the conversion. DDL can lock tables
+and is not transactional. A database advisory lock prevents concurrent keyword
+schema upgrades; completed conversions are skipped if an interrupted upgrade
+is retried. Koha only advances the installed plugin version after success.
+
+The conversion covers table defaults and every character column in:
+
+- `nm2db_records`, `nm2db_fields`, `nm2db_subfields`
+- `nm2db_keyword_search_weights`, `nm2db_keyword_search_facets`
+- `nm2db_keyword_search_facet_values`, `nm2db_keyword_search_suggestions`
+- `nm2db_keyword_search_derived_values`, `nm2db_keyword_search_words`
+- `nm2db_change_queue`, if installed
+
+Row contents, IDs, indexes, foreign keys and queued edits are retained. Koha
+core tables are not converted; intentional core collations such as
+`search_marc_map.marc_field` (`utf8mb4_bin`) remain untouched. Converting a
+legacy character set cannot recover characters already lost before conversion;
+upgrade NormalizeMARC2DB first if its legacy value-index prefix is not yet
+compatible with `utf8mb4` (768 characters).
+
+The upgrade does not rebuild normalized MARC or search caches. After deploying
+the plugin, refresh its method registry, reload Plack and restart the
+`long_tasks` worker. The separate word-cache build instructions still apply
+when upgrading from a version before the word index existed.
+
 ## Version 0.1 (2026-10-18)
 
 Fixes [issue #1](https://github.com/HKS3/koha-nm2db-keyword-search/issues/1)
@@ -177,11 +218,27 @@ plugin constructor is not called, so no catalogue data is changed):
 ```sh
 prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/catalogue_typeahead_hooks.t
 prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/refresh_cache_tool.t
+prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/schema_collation.t
 ```
 
 The refresh-tool test mocks cache writes and checks the maintenance-only UI,
 job registration, POST/CSRF guards, redirects, successful/failed refresh reports
 and concurrent-job rejection.
+
+The schema unit test checks uniform fresh-install DDL, conversion before cache
+queries, upgrade idempotency, explicit legacy column collations, failure/retry
+behavior and concurrency/transaction guards. No database is changed by it.
+
+Run the collation integration regression in the test KTD instance:
+
+```sh
+prove -v /kohadevbox/plugins/koha-nm2db-keyword-search/t/schema_collation_db.t
+```
+
+It creates three small, uniquely named fixture tables, reproduces the mixed
+collation error, converts them, checks plain joins and preserved Unicode/emoji
+values, then removes only its own fixture tables. Catalog tables are not changed
+by this regression test.
 
 Run the integration comparison test inside a KTD instance with the plugin mounted:
 

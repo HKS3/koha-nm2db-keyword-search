@@ -109,7 +109,7 @@ subtest 'authority searches use normalized MARC authority data' => sub {
             ON at.authtypecode = ah.authtypecode
         JOIN nm2db_fields f
             ON f.record_id = r.id
-           AND BINARY f.tag = BINARY at.auth_tag_to_report
+           AND f.tag = at.auth_tag_to_report
         JOIN nm2db_subfields s
             ON s.field_id = f.id
            AND COALESCE(s.code, '') = 'a'
@@ -131,7 +131,7 @@ subtest 'authority searches use normalized MARC authority data' => sub {
             ON at.authtypecode = ah.authtypecode
         JOIN nm2db_fields f
             ON f.record_id = r.id
-           AND BINARY f.tag = BINARY at.auth_tag_to_report
+           AND f.tag = at.auth_tag_to_report
         JOIN nm2db_subfields s
             ON s.field_id = f.id
            AND COALESCE(s.code, '') = 'a'
